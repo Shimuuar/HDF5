@@ -7,6 +7,7 @@ module HDF5.HL.Unsafe.Error
   , MinError(..)
   , Message(..)
   , DataspaceParseError(..)
+  , AttributeParseError(..)
     -- * API
   , decodeError
   , checkHID
@@ -463,6 +464,14 @@ data DataspaceParseError
   deriving stock Show
 
 instance Exception DataspaceParseError
+
+-- | Error during parsing of attribute
+data AttributeParseError
+  = MissingAttribute    !String -- ^ Attribute
+  | AttributeParseError !String -- ^ Any other error
+  deriving stock Show
+
+instance Exception AttributeParseError
 
 
 -- | Decode error from HDF5 error stack

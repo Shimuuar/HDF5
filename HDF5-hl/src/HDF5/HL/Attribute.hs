@@ -1,7 +1,9 @@
+{-# LANGUAGE GADTs        #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |
 -- API for working with attributes of datasets\/groups.
 module HDF5.HL.Attribute
-  ( -- * Attributes
+{-  ( -- * Attributes
     Attribute
   , openAttrMay
   , withAttrMay
@@ -9,18 +11,32 @@ module HDF5.HL.Attribute
   , writeAttr
     -- * Type class
   , SerializeAttr(..)
-  , AttributeM
-  , runAttributeM
+    -- ** Writing attributes
+  , AttributeWriter
+  , runAttributeWriter
   , encodeAttr
-  , decodeAttr
-  , attrSubset
-  ) where
+    -- ** Parsing of attributes
+  , AttributeParser
+  , runAttributeParserEither
+  , runAttributeParser
+  -- , AttributeM
+  -- , ReadAttr
+  -- , WriteAttr
+  -- , runAttributeM
+  -- , encodeAttr
+  -- , decodeAttrMay
+  -- , decodeAttr
+  -- , attrSubset
+  ) -} where
 
-import Control.Monad
+import Control.Applicative
+-- import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Cont
+import Data.List                 (intercalate)
+import Data.List.NonEmpty        qualified as NE
 import Foreign.C.String
 import Foreign.Marshal
 import GHC.Stack
@@ -102,55 +118,138 @@ writeAttr d name a = withFrozenCallStack $ evalContT $ do
 -- Typeclass based API
 ----------------------------------------------------------------
 
+data AttrTy = IsAttr
+            | IsAttrValue
 
--- | Values which could be serialized as set of attributes. Since
---   attributes live in flat namespace and type class based approach
---   basically require hierarchical namespace we hack around it using
---   'AttributeM'.
 class SerializeAttr a where
-  -- | Parser that reads from set of attributes.
-  fromAttrs :: HasCallStack => AttributeM a
-  -- | Encode value as a set of attributes.
-  toAttrs   :: HasCallStack => a -> AttributeM ()
-
-instance SerializeAttr () where
-  toAttrs   = pure
-  fromAttrs = pure ()
+  type AttrType a :: AttrTy
+  attrParser :: AttributeParser (AttrType a) a
+  attrWriter :: a -> AttributeWriter (AttrType a)
 
 
--- | Monad which allows to create hierarchical namespace in
---   attributes. This is done by applying transformation to each
---   attribute name before reading\/writing it.
-newtype AttributeM a = AttributeM
-  { unAttributeM :: forall d. HasAttrs d => d -> (FilePath -> FilePath) -> IO a }
+-- | Writer for attributes which is used to simulate nested namespace
+--   of attributes.
+newtype AttributeWriter (t :: AttrTy) = AttributeWriter
+  { unAttributeWriter :: forall d. HasAttrs d => d -> PathTransform t -> IO ()
+  }
+
+instance Semigroup (AttributeWriter t) where
+  AttributeWriter f <> AttributeWriter g = AttributeWriter $ \d mk_name ->
+    f d mk_name <> g d mk_name
+instance Monoid (AttributeWriter t) where
+  mempty =  AttributeWriter $ \_ _ -> pure ()
+
+
+
+primValueWriter :: ArrayLike a => a -> AttributeWriter IsAttrValue
+primValueWriter a = AttributeWriter $ \d mk_name -> do
+  let name = case mk_name of
+        TransformLeaf fun -> intercalate "/" $ NE.toList $ fun []
+  writeAttr d name a
+
+writeAttrAt :: FilePath -> (a -> AttributeWriter t) -> (a -> AttributeWriter IsAttr)
+writeAttrAt nm writ a = AttributeWriter $ \d mk_name ->
+  case writ a of
+    AttributeWriter fun -> fun d $ case mk_name of
+      TransformAttr f -> TransformLeaf ((nm NE.:|) . f)
+      TransformLeaf f -> TransformLeaf (NE.cons nm . f)
+
+
+
+-- | Evaluate attribute writer
+runAttributeWriter :: HasAttrs d => d -> AttributeWriter IsAttr -> IO ()
+runAttributeWriter d f = unAttributeWriter f d (TransformAttr id)
+
+
+
+-- | Parser for decoding of attributes
+newtype AttributeParser (t :: AttrTy) a = AttributeParser
+  { unAttributeParser :: forall r d. HasAttrs d
+                      => d
+                      -> PathTransform t
+                      -> (AttributeParseError -> IO r)
+                      -> (a                   -> IO r)
+                      -> IO r
+  }
   deriving stock Functor
 
--- | Evaluate attribute parser
-runAttributeM :: HasAttrs d => d -> AttributeM a -> IO a
-runAttributeM d (AttributeM f) = f d id
+data PathTransform ty where
+  TransformLeaf :: ([FilePath] -> NE.NonEmpty FilePath) -> PathTransform t
+  TransformAttr :: ([FilePath] -> [FilePath])           -> PathTransform IsAttr
 
-instance Applicative AttributeM where
-  pure a = AttributeM $ \_ _ -> pure a
-  (<*>)  = ap
+instance Applicative (AttributeParser t) where
+  pure a = AttributeParser $ \_ _ _ c_succ -> c_succ a
+  AttributeParser pF <*> AttributeParser pA
+    = AttributeParser
+    $ \d p c_fail c_succ -> pF d p c_fail
+    $ \f -> pA d p c_fail (c_succ . f)
 
-instance Monad AttributeM where
-  m >>= fun = AttributeM $ \d f -> do
-    a <- unAttributeM m d f
-    unAttributeM (fun a) d f
+instance Alternative (AttributeParser t) where
+  empty = AttributeParser $ \_ _ c_fail _ -> c_fail (AttributeParseError "Alternative.empty")
+  AttributeParser pA <|> AttributeParser pB
+    = AttributeParser
+    $ \d p c_fail c_succ -> pA d p (\_ -> pB d p c_fail c_succ) c_succ
 
--- | Prepend prefix to all attribute names mentioned in action.
-attrSubset
-  :: FilePath     -- ^ Prefix
-  -> AttributeM a -- ^ Action
-  -> AttributeM a
-attrSubset dir m = AttributeM $ \d fun -> unAttributeM m d ((dir++) . ('/':) . fun)
+instance Monad (AttributeParser t) where
+  m >>= f
+    = AttributeParser
+    $ \d p c_fail c_succ -> unAttributeParser m d p c_fail
+    $ \a -> unAttributeParser (f a) d p c_fail c_succ
 
-encodeAttr :: ArrayLike a => FilePath -> a -> AttributeM ()
-encodeAttr name a = AttributeM $ \d fun -> do
-  writeAttr d (fun name) a
+instance MonadFail (AttributeParser t) where
+  fail e = AttributeParser $ \_ _ c_fail _ -> c_fail (AttributeParseError $ "fail: " ++ e)
 
-decodeAttr :: ArrayLike a => FilePath -> AttributeM a
-decodeAttr name = AttributeM $ \d fun -> do
-  readAttrMay d (fun name) >>= \case
-    Nothing -> error "No attribute" -- FIXME: proper error handling
-    Just a  -> pure a
+-- | Run parser for attributes
+runAttributeParserEither
+  :: (HasAttrs d)
+  => d
+  -> AttributeParser IsAttr a
+  -> IO (Either AttributeParseError a)
+runAttributeParserEither d (AttributeParser parser)
+  = parser d (TransformAttr id) (pure . Left) (pure . Right)
+
+-- | Run parser for attributes. Parser errors would be thrown as exceptions
+runAttributeParser
+  :: (HasAttrs d)
+  => d
+  -> AttributeParser IsAttr a
+  -> IO a
+runAttributeParser d (AttributeParser parser)
+  = parser d (TransformAttr id) throwM pure
+
+primValueParser :: ArrayLike a => AttributeParser IsAttrValue a
+primValueParser = AttributeParser $ \d mk_name c_fail c_succ -> do
+  let name = case mk_name of
+        TransformLeaf fun -> intercalate "/" $ NE.toList $ fun []
+  readAttrMay d name >>= \case
+    Nothing -> c_fail $ MissingAttribute name
+    Just a  -> c_succ a
+
+parseAtPath :: FilePath -> AttributeParser t a -> AttributeParser IsAttr a
+parseAtPath nm (AttributeParser parser) = AttributeParser $ \d mk_name ->
+  parser d (case mk_name of
+              TransformAttr f -> TransformLeaf ((nm NE.:|) . f)
+              TransformLeaf f -> TransformLeaf (NE.cons nm . f)
+           )
+
+
+
+----------------------------------------------------------------
+-- Instances
+----------------------------------------------------------------
+
+instance SerializeAttr () where
+  type AttrType () = IsAttr
+  attrParser   = pure ()
+  attrWriter _ = mempty
+
+instance SerializeAttr Int where
+  type AttrType Int = IsAttrValue
+  attrParser = primValueParser
+  attrWriter = primValueWriter
+
+instance SerializeAttr a => SerializeAttr (Maybe a) where
+  type AttrType (Maybe a) = AttrType a
+  attrWriter Nothing  = mempty
+  attrWriter (Just a) = attrWriter a
+  attrParser = optional attrParser
