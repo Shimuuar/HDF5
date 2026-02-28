@@ -32,6 +32,7 @@ import GHC.Generics (Generic)
 
 import HDF5.C
 
+
 ----------------------------------------------------------------
 -- Data types
 ----------------------------------------------------------------
@@ -60,6 +61,115 @@ instance Show Error where
         , printf "  Major: [%s] %s" (show msgMajorN) msgMajor
         , printf "  Minor: [%s] %s" (show msgMinorN) msgMinor
         ]
+
+data Message = Message
+  { msgDescr  :: String
+  , msgMajor  :: String
+  , msgMajorN :: MajError
+  , msgMinor  :: String
+  , msgMinorN :: MinError
+  , msgLine   :: Int
+  , msgFunc   :: String
+  , msgFile   :: String
+  }
+  deriving stock Show
+
+instance Exception Error
+
+-- | Error during conversion of dataspace's size to haskell data type.
+data DataspaceParseError
+  = BadRank ![(Word64,Word64)]  -- ^ Has invalid shape
+  | UnexpectedNull              -- ^ Cannot convert NULL dataspace to haskell type
+  | BadIndex ![(Word64,Word64)] -- ^ Cannot convert index to haskell data type
+  deriving stock Show
+
+instance Exception DataspaceParseError
+
+
+-- | Error during parsing of attribute
+data AttributeParseError
+  = MissingAttribute    !String -- ^ Attribute
+  | AttributeParseError !String -- ^ Any other error
+  deriving stock Show
+
+instance Exception AttributeParseError
+
+
+-- | Decode error from HDF5 error stack
+decodeError :: HasCallStack => Ptr HID -> String -> IO Error
+decodeError p_err msg = evalContT $ do
+  hid_err  <- lift  $ peek p_err
+  v_stack  <- lift  $ newIORef []
+  buf      <- ContT $ allocaArray $ fromIntegral $ msg_size + 1
+  let step _ p _ = do
+        m_maj    <- peek $ h5e_error_maj_num p
+        msgMajor <- do n     <- h5e_get_msg m_maj nullPtr buf msg_size p_err
+                       if | n > 0     -> peekCString buf
+                          | otherwise -> pure ""
+        m_min    <- peek $ h5e_error_min_num p
+        msgMinor <- do n     <- h5e_get_msg m_min nullPtr buf msg_size p_err
+                       if | n > 0     -> peekCString buf
+                          | otherwise -> pure ""
+        let msgMajorN = decodeMajError m_maj
+            msgMinorN = decodeMinError m_min
+        msgFunc  <- peekCString  =<< peek (h5e_error_func_name p)
+        msgFile  <- peekCString  =<< peek (h5e_error_file_name p)
+        msgDescr <- peekCString  =<< peek (h5e_error_desc      p)
+        msgLine  <- fromIntegral <$> peek (h5e_error_line      p)
+        modifyIORef' v_stack (Message{..}:)
+        pure $ HErr 0
+  callback <- ContT $ bracket (makeWalker step) freeHaskellFunPtr
+  res      <- lift  $ h5e_walk hid_err H5E_WALK_UPWARD callback nullPtr p_err
+  case res of
+    HOK      -> lift $ Error msg <$> readIORef v_stack
+    HErrored -> pure $ Error (msg ++ internal) []
+  where
+    -- Error message from major/minor labels are usually short so we
+    -- don't need to bother with size discovery
+    msg_size = 255
+    internal = "\nINTERNAL ERROR: Failed to decode HDF5 error"
+
+checkHID :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HID) -> IO HID
+{-# INLINE checkHID #-}
+checkHID p_err msg action =
+  action p_err >>= \case
+    hid | hid < (HID 0) -> throwM =<< decodeError p_err msg
+        | otherwise     -> pure hid
+
+checkHErr :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HErr) -> IO ()
+{-# INLINE checkHErr #-}
+checkHErr p_err msg action =
+  action p_err >>= \case
+    HOK -> pure ()
+    _   -> throwM =<< decodeError p_err msg
+
+
+checkCInt :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO CInt) -> IO CInt
+{-# INLINE checkCInt #-}
+checkCInt p_err msg action =
+  action p_err >>= \case
+    n | n < 0     -> throwM =<< decodeError p_err msg
+      | otherwise -> pure n 
+
+checkCLLong :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HSSize) -> IO HSSize
+{-# INLINE checkCLLong #-}
+checkCLLong p_err msg action =
+  action p_err >>= \case
+    n | n < 0     -> throwM =<< decodeError p_err msg
+      | otherwise -> pure n 
+
+checkHTri :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HTri) -> IO Bool
+{-# INLINE checkHTri #-}
+checkHTri p_err msg action =
+  action p_err >>= \case
+    HFalse -> pure False
+    HTrue  -> pure True
+    HFail  -> throwM =<< decodeError p_err msg
+
+
+----------------------------------------------------------------
+-- Error codes
+----------------------------------------------------------------
 
 -- | Major error codes for HDF5 error. Here we follow naming
 --   conventions used by HDF5
@@ -440,107 +550,3 @@ decodeMinError h
   | h == c_H5E_CANTCANCEL           = MIN_CANTCANCEL
   | h == c_H5E_NONE_MINOR           = MIN_NONE_MINOR
   | otherwise                       = MIN_UNKNOWN
-
-
-data Message = Message
-  { msgDescr  :: String
-  , msgMajor  :: String
-  , msgMajorN :: MajError
-  , msgMinor  :: String
-  , msgMinorN :: MinError
-  , msgLine   :: Int
-  , msgFunc   :: String
-  , msgFile   :: String
-  }
-  deriving stock Show
-
-instance Exception Error
-
--- | Error during conversion of dataspace's size to haskell data type.
-data DataspaceParseError
-  = BadRank ![(Word64,Word64)]  -- ^ Has invalid shape
-  | UnexpectedNull              -- ^ Cannot convert NULL dataspace to haskell type
-  | BadIndex ![(Word64,Word64)] -- ^ Cannot convert index to haskell data type
-  deriving stock Show
-
-instance Exception DataspaceParseError
-
--- | Error during parsing of attribute
-data AttributeParseError
-  = MissingAttribute    !String -- ^ Attribute
-  | AttributeParseError !String -- ^ Any other error
-  deriving stock Show
-
-instance Exception AttributeParseError
-
-
--- | Decode error from HDF5 error stack
-decodeError :: HasCallStack => Ptr HID -> String -> IO Error
-decodeError p_err msg = evalContT $ do
-  hid_err  <- lift  $ peek p_err
-  v_stack  <- lift  $ newIORef []
-  buf      <- ContT $ allocaArray $ fromIntegral $ msg_size + 1
-  let step _ p _ = do
-        m_maj    <- peek $ h5e_error_maj_num p
-        msgMajor <- do n     <- h5e_get_msg m_maj nullPtr buf msg_size p_err
-                       if | n > 0     -> peekCString buf
-                          | otherwise -> pure ""
-        m_min    <- peek $ h5e_error_min_num p
-        msgMinor <- do n     <- h5e_get_msg m_min nullPtr buf msg_size p_err
-                       if | n > 0     -> peekCString buf
-                          | otherwise -> pure ""
-        let msgMajorN = decodeMajError m_maj
-            msgMinorN = decodeMinError m_min
-        msgFunc  <- peekCString  =<< peek (h5e_error_func_name p)
-        msgFile  <- peekCString  =<< peek (h5e_error_file_name p)
-        msgDescr <- peekCString  =<< peek (h5e_error_desc      p)
-        msgLine  <- fromIntegral <$> peek (h5e_error_line      p)
-        modifyIORef' v_stack (Message{..}:)
-        pure $ HErr 0
-  callback <- ContT $ bracket (makeWalker step) freeHaskellFunPtr
-  res      <- lift  $ h5e_walk hid_err H5E_WALK_UPWARD callback nullPtr p_err
-  case res of
-    HOK      -> lift $ Error msg <$> readIORef v_stack
-    HErrored -> pure $ Error (msg ++ internal) []
-  where
-    -- Error message from major/minor labels are usually short so we
-    -- don't need to bother with size discovery
-    msg_size = 255
-    internal = "\nINTERNAL ERROR: Failed to decode HDF5 error"
-
-checkHID :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HID) -> IO HID
-{-# INLINE checkHID #-}
-checkHID p_err msg action =
-  action p_err >>= \case
-    hid | hid < (HID 0) -> throwM =<< decodeError p_err msg
-        | otherwise     -> pure hid
-
-checkHErr :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HErr) -> IO ()
-{-# INLINE checkHErr #-}
-checkHErr p_err msg action =
-  action p_err >>= \case
-    HOK -> pure ()
-    _   -> throwM =<< decodeError p_err msg
-
-
-checkCInt :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO CInt) -> IO CInt
-{-# INLINE checkCInt #-}
-checkCInt p_err msg action =
-  action p_err >>= \case
-    n | n < 0     -> throwM =<< decodeError p_err msg
-      | otherwise -> pure n 
-
-checkCLLong :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HSSize) -> IO HSSize
-{-# INLINE checkCLLong #-}
-checkCLLong p_err msg action =
-  action p_err >>= \case
-    n | n < 0     -> throwM =<< decodeError p_err msg
-      | otherwise -> pure n 
-
-checkHTri :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HTri) -> IO Bool
-{-# INLINE checkHTri #-}
-checkHTri p_err msg action =
-  action p_err >>= \case
-    HFalse -> pure False
-    HTrue  -> pure True
-    HFail  -> throwM =<< decodeError p_err msg
