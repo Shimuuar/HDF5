@@ -5,34 +5,31 @@
 -- |
 -- API for working with attributes of datasets\/groups.
 module HDF5.HL.Attribute
-{-  ( -- * Attributes
+  ( -- * Attributes
     Attribute
   , openAttrMay
   , withAttrMay
   , readAttrMay
   , writeAttr
-    -- * Type class
+    -- * Type class API
   , SerializeAttr(..)
-    -- ** Writing attributes
+  , AttrTy(..)
+    -- ** Deriving
+  , AsAttributeValue(..)
+    -- ** Attribute writer
   , AttributeWriter
   , runAttributeWriter
-  , encodeAttr
-    -- ** Parsing of attributes
+  , writeAttrValue
+  , writeAttrSet
+    -- ** Attribute parser
   , AttributeParser
   , runAttributeParserEither
   , runAttributeParser
-  -- , AttributeM
-  -- , ReadAttr
-  -- , WriteAttr
-  -- , runAttributeM
-  -- , encodeAttr
-  -- , decodeAttrMay
-  -- , decodeAttr
-  -- , attrSubset
-  ) -} where
+  , parseAttrValue
+  , parseAttrSet
+  ) where
 
 import Control.Applicative
--- import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 import Control.Monad.Trans.Class
@@ -136,14 +133,39 @@ writeAttr d name a = withFrozenCallStack $ evalContT $ do
 -- Typeclass based API
 ----------------------------------------------------------------
 
-data AttrTy = IsAttr
-            | IsAttrValue
 
+-- | Type class for reading and writing haskell values as set of HDF5
+--   attributes. Here we have to solve several problems. Attributes
+--   live in flat namespace and in order to serialize records we need
+--   hierarchical one. We simulate hierarchy by using directory-like
+--   names.
+--
+--   > foo/a1
+--   > foo/a2
+--   > bar
+--
+--   This class must be derivable. And thus we need to be able write
+--   instances for types representing attribute values: @Int@,
+--   @Vector@, etc. They aren't attributes proper they don't have name
 class SerializeAttr a where
   type AttrType a :: AttrTy
   attrParser :: AttributeParser (AttrType a) a
   attrWriter :: a -> AttributeWriter (AttrType a)
 
+-- | Type tag for testing whether parser\/writer could be used or it
+--   merely describes how attribute values should be parsed if
+--   attribute name is provided
+data AttrTy
+  = IsAttr      -- ^ This is proper attribute
+  | IsAttrValue -- ^ This is only attribute value
+
+data PathTransform ty where
+  TransformLeaf :: ([FilePath] -> NE.NonEmpty FilePath) -> PathTransform t
+  TransformAttr :: ([FilePath] -> [FilePath])           -> PathTransform IsAttr
+
+
+----------------------------------------------------------------
+-- Writer
 
 type role AttributeWriter nominal
 
@@ -153,41 +175,53 @@ newtype AttributeWriter (t :: AttrTy) = AttributeWriter
   { unAttributeWriter :: forall d. HasAttrs d => d -> PathTransform t -> IO ()
   }
 
+-- | Evaluate attribute writer
+runAttributeWriter
+  :: HasAttrs d
+  => d                      -- ^ HDF5 object to add attributes to
+  -> AttributeWriter IsAttr
+  -> IO ()
+runAttributeWriter d f = unAttributeWriter f d (TransformAttr id)
+
+
 instance Semigroup (AttributeWriter t) where
   AttributeWriter f <> AttributeWriter g = AttributeWriter $ \d mk_name ->
     f d mk_name <> g d mk_name
+
 instance Monoid (AttributeWriter t) where
-  mempty =  AttributeWriter $ \_ _ -> pure ()
+  mempty = AttributeWriter $ \_ _ -> pure ()
 
 
-
-primValueWriter :: ArrayLike a => a -> AttributeWriter IsAttrValue
-primValueWriter a = AttributeWriter $ \d mk_name -> do
+-- | Writer for attribute value. It couldn't be executed and could
+--   only be used as part of other parsers. See 'attributeSet'
+writeAttrValue :: ArrayLike a => a -> AttributeWriter IsAttrValue
+writeAttrValue a = AttributeWriter $ \d mk_name -> do
   let name = case mk_name of
         TransformLeaf fun -> intercalate "/" $ NE.toList $ fun []
   writeAttr d name a
 
-writeAttrAt :: FilePath -> (a -> AttributeWriter t) -> (a -> AttributeWriter IsAttr)
-writeAttrAt nm writ a = AttributeWriter $ \d mk_name ->
+
+-- | Prepend string to names of all attributes.
+writeAttrSet
+  :: FilePath
+  -- ^ Name to prepend
+  -> (a -> AttributeWriter t)
+  -- ^ Attribute writer.
+  -> (a -> AttributeWriter IsAttr)
+writeAttrSet nm writ a = AttributeWriter $ \d mk_name ->
   case writ a of
     AttributeWriter fun -> fun d $ case mk_name of
       TransformAttr f -> TransformLeaf ((nm NE.:|) . f)
       TransformLeaf f -> TransformLeaf (NE.cons nm . f)
 
 
-
--- | Evaluate attribute writer
-runAttributeWriter :: HasAttrs d => d -> AttributeWriter IsAttr -> IO ()
-runAttributeWriter d f = unAttributeWriter f d (TransformAttr id)
-
-
 ----------------------------------------------------------------
 -- Parser
 
-
 type role AttributeParser nominal representational
 
--- | Parser for decoding of attributes
+-- | Parser for decoding of attributes. It backtracks on missing
+--   attributes but reading errors results in exception.
 newtype AttributeParser (t :: AttrTy) a = AttributeParser
   { unAttributeParser :: forall r d. HasAttrs d
                       => d
@@ -197,10 +231,6 @@ newtype AttributeParser (t :: AttrTy) a = AttributeParser
                       -> IO r
   }
   deriving stock Functor
-
-data PathTransform ty where
-  TransformLeaf :: ([FilePath] -> NE.NonEmpty FilePath) -> PathTransform t
-  TransformAttr :: ([FilePath] -> [FilePath])           -> PathTransform IsAttr
 
 instance Applicative (AttributeParser t) where
   pure a = AttributeParser $ \_ _ _ c_succ -> c_succ a
@@ -242,16 +272,18 @@ runAttributeParser
 runAttributeParser d (AttributeParser parser)
   = parser d (TransformAttr id) throwM pure
 
-primValueParser :: ArrayLike a => AttributeParser IsAttrValue a
-primValueParser = AttributeParser $ \d mk_name c_fail c_succ -> do
+
+-- | Parser for attribute value.
+parseAttrValue :: ArrayLike a => AttributeParser IsAttrValue a
+parseAttrValue = AttributeParser $ \d mk_name c_fail c_succ -> do
   let name = case mk_name of
         TransformLeaf fun -> intercalate "/" $ NE.toList $ fun []
   readAttrMay d name >>= \case
     Nothing -> c_fail $ MissingAttribute name
     Just a  -> c_succ a
 
-parseAtPath :: FilePath -> AttributeParser t a -> AttributeParser IsAttr a
-parseAtPath nm (AttributeParser parser) = AttributeParser $ \d mk_name ->
+parseAttrSet :: FilePath -> AttributeParser t a -> AttributeParser IsAttr a
+parseAttrSet nm (AttributeParser parser) = AttributeParser $ \d mk_name ->
   parser d (case mk_name of
               TransformAttr f -> TransformLeaf ((nm NE.:|) . f)
               TransformLeaf f -> TransformLeaf (NE.cons nm . f)
@@ -267,8 +299,8 @@ newtype AsAttributeValue a = AsAttributeValue a
 
 instance ArrayLike a => SerializeAttr (AsAttributeValue a) where
   type AttrType (AsAttributeValue a) = IsAttrValue
-  attrParser = coerce (primValueParser @a)
-  attrWriter = coerce (primValueWriter @a)
+  attrParser = coerce (parseAttrValue @a)
+  attrWriter = coerce (writeAttrValue @a)
 
 
 
@@ -322,4 +354,3 @@ deriving via AsAttributeValue (VP.Vector a)
     instance (Element a, VP.Prim a) => SerializeAttr (VP.Vector a)
 deriving via AsAttributeValue (VU.Vector a)
     instance (Element a, VU.Unbox a) => SerializeAttr (VU.Vector a)
-
