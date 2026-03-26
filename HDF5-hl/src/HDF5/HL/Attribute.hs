@@ -193,7 +193,7 @@ data AttrTy
 
 data PathTransform ty where
   TransformLeaf :: ([FilePath] -> NE.NonEmpty FilePath) -> PathTransform t
-  TransformAttr :: ([FilePath] -> [FilePath])           -> PathTransform IsAttr
+  TransformAttr :: PathTransform IsAttr
 
 
 ----------------------------------------------------------------
@@ -213,7 +213,7 @@ runAttributeWriter
   => d                      -- ^ HDF5 object to add attributes to
   -> AttributeWriter IsAttr
   -> IO ()
-runAttributeWriter d f = unAttributeWriter f d (TransformAttr id)
+runAttributeWriter d f = unAttributeWriter f d TransformAttr
 
 
 instance Semigroup (AttributeWriter t) where
@@ -243,8 +243,8 @@ writeAttrSet
 writeAttrSet nm writ a = AttributeWriter $ \d mk_name ->
   case writ a of
     AttributeWriter fun -> fun d $ case mk_name of
-      TransformAttr f -> TransformLeaf ((nm NE.:|) . f)
-      TransformLeaf f -> TransformLeaf (NE.cons nm . f)
+      TransformAttr   -> TransformLeaf (nm NE.:|)
+      TransformLeaf f -> TransformLeaf (f . (nm:))
 
 
 ----------------------------------------------------------------
@@ -293,7 +293,7 @@ runAttributeParserEither
   -> AttributeParser IsAttr a
   -> IO (Either AttributeParseError a)
 runAttributeParserEither d (AttributeParser parser)
-  = parser d (TransformAttr id) (pure . Left) (pure . Right)
+  = parser d TransformAttr (pure . Left) (pure . Right)
 
 -- | Run parser for attributes. Parser errors would be thrown as exceptions
 runAttributeParser
@@ -302,7 +302,7 @@ runAttributeParser
   -> AttributeParser IsAttr a
   -> IO a
 runAttributeParser d (AttributeParser parser)
-  = parser d (TransformAttr id) throwM pure
+  = parser d TransformAttr throwM pure
 
 
 -- | Parser for attribute value.
@@ -317,8 +317,8 @@ parseAttrValue = AttributeParser $ \d mk_name c_fail c_succ -> do
 parseAttrSet :: FilePath -> AttributeParser t a -> AttributeParser IsAttr a
 parseAttrSet nm (AttributeParser parser) = AttributeParser $ \d mk_name ->
   parser d (case mk_name of
-              TransformAttr f -> TransformLeaf ((nm NE.:|) . f)
-              TransformLeaf f -> TransformLeaf (NE.cons nm . f)
+              TransformAttr   -> TransformLeaf (nm NE.:|)
+              TransformLeaf f -> TransformLeaf (f . (nm:))
            )
 
 
