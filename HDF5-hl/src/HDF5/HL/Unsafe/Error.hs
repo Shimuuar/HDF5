@@ -15,9 +15,17 @@ module HDF5.HL.Unsafe.Error
   , checkHTri
   , checkCInt
   , checkCLLong
+    -- ** Continuations
+  , contCheckHID
+  , contCheckHErr
+  , contCheckHTri
+  , contCheckCInt
+  , contCheckCLLong
+  , contEither
   ) where
 
 import Control.Monad.Catch
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Cont
 import Data.IORef
@@ -50,7 +58,7 @@ instance Show Error where
   show (Error hs_msg msgs) = unlines $ concat
     [ [ "HDF5 error"
       , hs_msg
-      ]    
+      ]
     , [ ' ':' ':prettyCallSite s | s <- getCallStack callStack]
     , displayMsg =<< msgs
     ]
@@ -143,7 +151,6 @@ checkHErr p_err msg action =
     HOK -> pure ()
     _   -> throwM =<< decodeError p_err msg
 
-
 checkCInt :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO CInt) -> IO CInt
 {-# INLINE checkCInt #-}
 checkCInt p_err msg action =
@@ -155,7 +162,7 @@ checkCLLong :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HSSize) -> IO
 {-# INLINE checkCLLong #-}
 checkCLLong p_err msg action =
   action p_err >>= \case
-    n | n < 0     -> throwM =<< decodeError p_err msg
+    n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
       | otherwise -> pure n 
 
 checkHTri :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HTri) -> IO Bool
@@ -165,6 +172,56 @@ checkHTri p_err msg action =
     HFalse -> pure False
     HTrue  -> pure True
     HFail  -> throwM =<< decodeError p_err msg
+
+
+
+contCheckHID :: () => Ptr HID -> String -> (Ptr HID -> IO HID) -> ContT (Either Error r) IO HID
+{-# INLINE contCheckHID #-}
+contCheckHID p_err msg action =
+  liftIO (action p_err) >>= \case
+    hid | hid < (HID 0) -> abort p_err msg
+        | otherwise     -> pure hid
+
+contCheckHErr :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO HErr) -> m ()
+{-# INLINE contCheckHErr #-}
+contCheckHErr p_err msg action =
+  liftIO (action p_err) >>= \case
+    HOK -> pure ()
+    _   -> throwM =<< liftIO (decodeError p_err msg)
+
+contCheckCInt :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO CInt) -> m CInt
+{-# INLINE contCheckCInt #-}
+contCheckCInt p_err msg action =
+  liftIO (action p_err) >>= \case
+    n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
+      | otherwise -> pure n
+
+contCheckCLLong :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO HSSize) -> m HSSize
+{-# INLINE contCheckCLLong #-}
+contCheckCLLong p_err msg action =
+  liftIO (action p_err) >>= \case
+    n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
+      | otherwise -> pure n
+
+contCheckHTri :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO HTri) -> m Bool
+{-# INLINE contCheckHTri #-}
+contCheckHTri p_err msg action =
+  liftIO (action p_err) >>= \case
+    HFalse -> pure False
+    HTrue  -> pure True
+    HFail  -> throwM =<< liftIO (decodeError p_err msg)
+
+
+abort :: Ptr HID -> String -> ContT (Either Error r) IO a
+abort p_err msg = do e <- liftIO (decodeError p_err msg)
+                     ContT $ \_ -> pure (Left e)
+
+contEither :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m a
+contEither action = do
+  liftIO (runContT action (pure . Right)) >>= \case
+    Left  e -> throwM e
+    Right a -> pure a
+
 
 
 ----------------------------------------------------------------
