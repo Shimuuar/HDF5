@@ -1,5 +1,7 @@
-{-# LANGUAGE GADTs        #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GADTs                #-}
+{-# LANGUAGE RoleAnnotations      #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- |
 -- API for working with attributes of datasets\/groups.
 module HDF5.HL.Attribute
@@ -35,8 +37,23 @@ import Control.Monad.IO.Class
 import Control.Monad.Catch
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Cont
-import Data.List                 (intercalate)
-import Data.List.NonEmpty        qualified as NE
+import Data.Int
+import Data.Word
+import Data.Coerce
+import Data.List                   (intercalate)
+import Data.List.NonEmpty          qualified as NE
+import Data.Vector.Fixed           qualified as F
+import Data.Vector.Fixed.Unboxed   qualified as FU
+import Data.Vector.Fixed.Boxed     qualified as FB
+import Data.Vector.Fixed.Storable  qualified as FS
+import Data.Vector.Fixed.Primitive qualified as FP
+import Data.Vector.Fixed.Strict    qualified as FV
+import Data.Vector                 qualified as V
+import Data.Vector.Storable        qualified as VS
+import Data.Vector.Unboxed         qualified as VU
+import Data.Vector.Strict          qualified as VV
+import Data.Vector.Primitive       qualified as VP
+import Foreign.Storable
 import Foreign.C.String
 import Foreign.Marshal
 import GHC.Stack
@@ -46,6 +63,7 @@ import HDF5.HL.Unsafe.Wrappers
 import HDF5.HL.Unsafe.Error
 import HDF5.HL.Serialize
 import HDF5.HL.Dataspace
+import HDF5.HL.Vector
 import HDF5.C
 
 ----------------------------------------------------------------
@@ -127,6 +145,8 @@ class SerializeAttr a where
   attrWriter :: a -> AttributeWriter (AttrType a)
 
 
+type role AttributeWriter nominal
+
 -- | Writer for attributes which is used to simulate nested namespace
 --   of attributes.
 newtype AttributeWriter (t :: AttrTy) = AttributeWriter
@@ -161,6 +181,11 @@ runAttributeWriter :: HasAttrs d => d -> AttributeWriter IsAttr -> IO ()
 runAttributeWriter d f = unAttributeWriter f d (TransformAttr id)
 
 
+----------------------------------------------------------------
+-- Parser
+
+
+type role AttributeParser nominal representational
 
 -- | Parser for decoding of attributes
 newtype AttributeParser (t :: AttrTy) a = AttributeParser
@@ -238,18 +263,63 @@ parseAtPath nm (AttributeParser parser) = AttributeParser $ \d mk_name ->
 -- Instances
 ----------------------------------------------------------------
 
+newtype AsAttributeValue a = AsAttributeValue a
+
+instance ArrayLike a => SerializeAttr (AsAttributeValue a) where
+  type AttrType (AsAttributeValue a) = IsAttrValue
+  attrParser = coerce (primValueParser @a)
+  attrWriter = coerce (primValueWriter @a)
+
+
+
+-- | Doesn't read or write attributes.
 instance SerializeAttr () where
   type AttrType () = IsAttr
   attrParser   = pure ()
   attrWriter _ = mempty
-
-instance SerializeAttr Int where
-  type AttrType Int = IsAttrValue
-  attrParser = primValueParser
-  attrWriter = primValueWriter
 
 instance SerializeAttr a => SerializeAttr (Maybe a) where
   type AttrType (Maybe a) = AttrType a
   attrWriter Nothing  = mempty
   attrWriter (Just a) = attrWriter a
   attrParser = optional attrParser
+
+
+deriving via AsAttributeValue Int    instance SerializeAttr Int
+deriving via AsAttributeValue Int8   instance SerializeAttr Int8
+deriving via AsAttributeValue Int16  instance SerializeAttr Int16
+deriving via AsAttributeValue Int32  instance SerializeAttr Int32
+deriving via AsAttributeValue Int64  instance SerializeAttr Int64
+deriving via AsAttributeValue Word   instance SerializeAttr Word
+deriving via AsAttributeValue Word8  instance SerializeAttr Word8
+deriving via AsAttributeValue Word16 instance SerializeAttr Word16
+deriving via AsAttributeValue Word32 instance SerializeAttr Word32
+deriving via AsAttributeValue Word64 instance SerializeAttr Word64
+deriving via AsAttributeValue Float  instance SerializeAttr Float
+deriving via AsAttributeValue Double instance SerializeAttr Double
+
+deriving via AsAttributeValue (FB.Vec n a)
+    instance (F.Arity n, Element a) => SerializeAttr (FB.Vec n a)
+deriving via AsAttributeValue (FU.Vec n a)
+    instance (F.Arity n, Element a, FU.Unbox n a) => SerializeAttr (FU.Vec n a)
+deriving via AsAttributeValue (FS.Vec n a)
+    instance (F.Arity n, Element a, Storable a) => SerializeAttr (FS.Vec n a)
+deriving via AsAttributeValue (FP.Vec n a)
+    instance (F.Arity n, Element a, FP.Prim a) => SerializeAttr (FP.Vec n a)
+deriving via AsAttributeValue (FV.Vec n a)
+    instance (F.Arity n, Element a) => SerializeAttr (FV.Vec n a)
+
+deriving via AsAttributeValue [a] instance Element a => SerializeAttr [a]
+deriving via AsAttributeValue (VecHDF5 a)
+    instance (Element a) => SerializeAttr (VecHDF5 a)
+deriving via AsAttributeValue (V.Vector a)
+    instance (Element a) => SerializeAttr (V.Vector a)
+deriving via AsAttributeValue (VV.Vector a)
+    instance (Element a) => SerializeAttr (VV.Vector a)
+deriving via AsAttributeValue (VS.Vector a)
+    instance (Element a, VS.Storable a) => SerializeAttr (VS.Vector a)
+deriving via AsAttributeValue (VP.Vector a)
+    instance (Element a, VP.Prim a) => SerializeAttr (VP.Vector a)
+deriving via AsAttributeValue (VU.Vector a)
+    instance (Element a, VU.Unbox a) => SerializeAttr (VU.Vector a)
+
