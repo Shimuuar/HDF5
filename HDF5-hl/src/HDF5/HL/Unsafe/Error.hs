@@ -22,6 +22,8 @@ module HDF5.HL.Unsafe.Error
   , contCheckCInt
   , contCheckCLLong
   , contEither
+  , contEitherVal
+  , abort
   ) where
 
 import Control.Monad.Catch
@@ -222,6 +224,8 @@ contEither action = do
     Left  e -> throwM e
     Right a -> pure a
 
+contEitherVal :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m (Either Error a)
+contEitherVal action = liftIO (runContT action (pure . Right))
 
 
 ----------------------------------------------------------------

@@ -266,10 +266,10 @@ runParserDim uncons s0 (ParserDim fun) = fmap snd <$> fun uncons s0
 
 
 runParseFromDataspace
-  :: IsDataspace a
+  :: (IsDataspace a, MonadIO m, MonadThrow m)
   => Dataspace
-  -> IO (Either DataspaceParseError a)
-runParseFromDataspace (getHID -> hid) = withFrozenCallStack $ evalContT $ do
+  -> m (Either DataspaceParseError a)
+runParseFromDataspace (getHID -> hid) = withFrozenCallStack $ contEither $ do
   p_err <- ContT alloca
   lift (h5s_get_simple_extent_type hid p_err) >>= \case
     H5S_NULL   -> pure $ case decodeNullDataspace of
@@ -279,29 +279,27 @@ runParseFromDataspace (getHID -> hid) = withFrozenCallStack $ evalContT $ do
       Just a  -> Right a
       Nothing -> Left (BadRank [])
     H5S_SIMPLE -> do
-      rank <- lift
-            $ fmap fromIntegral
-            $ checkCInt p_err "Cannot get rank of simple extent"
+      rank <- fmap fromIntegral
+            $ contCheckCInt p_err "Cannot get rank of simple extent"
             $ h5s_get_simple_extent_ndims hid
       -- Allocate buffers
       p_dim <- ContT $ allocaArray rank
       p_max <- ContT $ allocaArray rank
-      lift $ do
-        _ <- checkCInt p_err "Cannot get extent for simple dataspace"
-           $ h5s_get_simple_extent_dims hid p_dim p_max
-        --
-        let uncons i | i >= rank = pure Nothing
-                     | otherwise = do
-                         dim  <- peekElemOff p_dim i
-                         mdim <- peekElemOff p_max i
-                         pure $ Just (i+1, (dim, mdim))
-        runParserDim uncons 0  decodeDataspace >>= \case
-          Just a  -> pure (Right a)
-          Nothing -> do
-            dim  <- peekArray rank p_dim
-            dmax <- peekArray rank p_max
-            pure $ Left $ BadRank $ zip dim dmax
-    _ -> lift $ throwM =<< decodeError p_err "Cannot get class of dataspace"
+      do _ <- contCheckCInt p_err "Cannot get extent for simple dataspace"
+            $ h5s_get_simple_extent_dims hid p_dim p_max
+         --
+         let uncons i | i >= rank = pure Nothing
+                      | otherwise = do
+                          dim  <- peekElemOff p_dim i
+                          mdim <- peekElemOff p_max i
+                          pure $ Just (i+1, (dim, mdim))
+         liftIO $ runParserDim uncons 0 decodeDataspace >>= \case
+           Just a  -> pure (Right a)
+           Nothing -> do
+             dim  <- peekArray rank p_dim
+             dmax <- peekArray rank p_max
+             pure $ Left $ BadRank $ zip dim dmax
+    _ -> abort p_err "Cannot get class of dataspace"
 
 
 
@@ -313,34 +311,34 @@ runParseFromDataspace (getHID -> hid) = withFrozenCallStack $ evalContT $ do
 -- | Create dataspace for a given extent. This only creates scalar or
 --   simple dataspaces with maximum size same as real size.
 createDataspaceFromExtent
-  :: (IsExtent dim, HasCallStack)
+  :: (IsExtent dim, MonadIO m, MonadThrow m, HasCallStack)
   => dim       -- ^ Extent of dataspace
-  -> IO Dataspace
-createDataspaceFromExtent dim = withFrozenCallStack $ evalContT $ do
+  -> m Dataspace
+createDataspaceFromExtent dim = withFrozenCallStack $ contEither $ do
   p_err      <- ContT $ alloca
   (rank,ptr) <- withEncodedExtent $ encodeExtent dim
-  lift $ fmap Dataspace
-       $ checkHID p_err "Unable to create simple dataspace"
-       $ h5s_create_simple (fromIntegral rank) ptr nullPtr
+  fmap Dataspace
+    $ contCheckHID p_err "Unable to create simple dataspace"
+    $ h5s_create_simple (fromIntegral rank) ptr nullPtr
 
 
 -- | Create dataspace for a given extent. This variant allow creation
 --   of all possible dataspaces.
 createDataspaceFromDSpace
-  :: (IsDataspace dim, HasCallStack)
+  :: (IsDataspace dim, MonadIO m, MonadThrow m, HasCallStack)
   => dim       -- ^ Extent of dataspace
-  -> IO Dataspace
-createDataspaceFromDSpace dspace = withFrozenCallStack $ evalContT $ do
+  -> m Dataspace
+createDataspaceFromDSpace dspace = withFrozenCallStack $ contEither $ do
   p_err <- ContT $ alloca
   case encodeDataspace dspace of
-    Nothing  -> lift $ fmap Dataspace
-                     $ checkHID p_err "Unable to create dataspace with NULL extent"
-                     $ h5s_create H5S_NULL
+    Nothing -> fmap Dataspace
+             $ contCheckHID p_err "Unable to create dataspace with NULL extent"
+             $ h5s_create H5S_NULL
     Just encoder -> do
       (rank,p_sz,p_max) <- withEncodedDataspace encoder
-      lift $ fmap Dataspace
-           $ checkHID p_err "Unable to create simple dataspace"
-           $ h5s_create_simple (fromIntegral rank) p_sz p_max
+      fmap Dataspace
+        $ contCheckHID p_err "Unable to create simple dataspace"
+        $ h5s_create_simple (fromIntegral rank) p_sz p_max
 
 
 -- | Bracket wrapping 'createDataspaceFromExtent'
@@ -364,16 +362,15 @@ withCreateDataspaceFromDSpace dim
 
 -- | Set selection in dataspace to a regular slab.
 setSlabSelection
-  :: (IsExtent dim)
+  :: (IsExtent dim, MonadIO m, MonadThrow m)
   => Dataspace
   -> dim        -- ^ Offset
   -> dim        -- ^ Size of selection
-  -> IO ()
-setSlabSelection (Dataspace hid) off sz = evalContT $ do
-  p_err     <- ContT alloca
+  -> m ()
+setSlabSelection (Dataspace hid) off sz = withFrozenCallStack $ contEither $ do
+  p_err <- ContT alloca
   --
-  rank_dset <- lift
-             $ checkCInt p_err "Cannot get rank of dataspace's extent"
+  rank_dset <- contCheckCInt p_err "Cannot get rank of dataspace's extent"
              $ h5s_get_simple_extent_ndims hid
   --
   (rank_off, p_off) <- withEncodedExtent $ encodeExtent off
@@ -382,10 +379,10 @@ setSlabSelection (Dataspace hid) off sz = evalContT $ do
     Error "In dataspace selection ranks of an offset and size do not match" []
   when (fromIntegral rank_dset /= rank_sz) $ throwM $
     Error "Rank of size does not match rank of dataset" []
-  lift $ checkHErr p_err "Unable to set simple hyperslab selection"
-       $ h5s_select_hyperslab hid H5S_SELECT_SET
-            p_off nullPtr
-            p_sz  nullPtr
+  contCheckHErr p_err "Unable to set simple hyperslab selection"
+    $ h5s_select_hyperslab hid H5S_SELECT_SET
+        p_off nullPtr
+        p_sz  nullPtr
   pure ()
 
 
@@ -400,21 +397,19 @@ getDataspace = liftIO . getDataspaceIO
 -- | Find rank of dataspace. Returns @Nothing@ for null dataspaces,
 --   @Just 0@ for scalars and @Just n@ for rank-N arrays.
 dataspaceRank
-  :: (HasCallStack, MonadIO m)
+  :: (HasCallStack, MonadIO m, MonadThrow m)
   => Dataspace
   -> m (Maybe Int)
-dataspaceRank (Dataspace hid)
-  = withFrozenCallStack
-  $ liftIO
-  $ alloca $ \p_err ->
-    h5s_get_simple_extent_type hid p_err >>= \case
+dataspaceRank (Dataspace hid) = withFrozenCallStack $ contEither $ do
+  p_err <- ContT alloca
+  lift (h5s_get_simple_extent_type hid p_err) >>= \case
       H5S_NULL   -> pure   Nothing
       H5S_SCALAR -> pure $ Just 0
       H5S_SIMPLE -> do
-        n <- checkCInt p_err "Cannot get rank of dataspace's extent"
+        n <- contCheckCInt p_err "Cannot get rank of dataspace's extent"
            $ h5s_get_simple_extent_ndims hid
         pure $ Just (fromIntegral n)
-      _ -> throwM =<< decodeError p_err "Cannot get dataspace type"
+      _ -> abort p_err "Cannot get dataspace type"
 
 -- | Parse extent of dataspace. Returns @Nothing@ if dataspace doens't
 --   match expected shape.

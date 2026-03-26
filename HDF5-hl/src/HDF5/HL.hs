@@ -190,23 +190,22 @@ getType = liftIO . getTypeIO
 -- | Open HDF5 file. This function will throw exception when file
 --   doesn't exists even if it's open for writing. Use 'createFile' to
 --   create new file. Returned handle must be closed using 'close'.
-openFile :: (MonadIO m, HasCallStack) => FilePath -> OpenMode -> m File
-openFile path = liftIO . \case
-  OpenRO     -> native h5f_ACC_RDONLY
-  OpenRW     -> native h5f_ACC_RDWR
-  OpenAppend -> native h5f_ACC_RDWR `catch` onOpenFail
+openFile :: (MonadIO m, MonadThrow m, HasCallStack) => FilePath -> OpenMode -> m File
+openFile path = \case
+  OpenRO     -> native h5f_ACC_RDONLY >>= either throwM pure
+  OpenRW     -> native h5f_ACC_RDWR   >>= either throwM pure
+  OpenAppend -> native h5f_ACC_RDWR   >>= \case
+    Right a -> pure a
+    Left (Error _ (Message{msgMajorN=MAJ_FILE,msgMinorN=MIN_CANTOPENFILE}:_))
+           -> createFile path CreateExcl
+    Left e -> throwM e
   where
-    native mode = withFrozenCallStack $ evalContT $ do
+    native mode = withFrozenCallStack $ contEitherVal $ do
       p_err  <- ContT $ alloca
       c_path <- ContT $ withCString path
-      lift $ fmap File
-           $ checkHID p_err ("Cannot open file " ++ path)
-           $ h5f_open c_path mode H5P_DEFAULT
-    --
-    onOpenFail (Error _ (Message{msgMajorN=MAJ_FILE,msgMinorN=MIN_CANTOPENFILE}:_))
-      = createFile path CreateExcl
-    onOpenFail e
-      = throwM e
+      fmap File
+        $ contCheckHID p_err ("Cannot open file " ++ path)
+        $ h5f_open c_path mode H5P_DEFAULT
 
 -- | Open file using 'openFile' and pass handle to continuation. It
 --   will be closed when continuation finish execution normally or
@@ -219,13 +218,13 @@ withOpenFile path mode = bracket (openFile path mode) close
 -- | Create new HDF5 file or replace existing file. Use 'openFile' to
 --   open existing file for modification. Returned handle must be
 --   closed using 'close'.
-createFile :: (MonadIO m, HasCallStack) => FilePath -> CreateMode -> m File
-createFile path mode = liftIO $ withFrozenCallStack $ evalContT $ do
+createFile :: (MonadIO m, MonadThrow m, HasCallStack) => FilePath -> CreateMode -> m File
+createFile path mode = withFrozenCallStack $ contEither $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
-  lift $ fmap File
-       $ checkHID p_err ("Cannot create file " ++ path)
-       $ h5f_create c_path (toCParam mode) H5P_DEFAULT H5P_DEFAULT
+  fmap File
+    $ contCheckHID p_err ("Cannot create file " ++ path)
+    $ h5f_create c_path (toCParam mode) H5P_DEFAULT H5P_DEFAULT
 
 -- | Create file using 'createFile' and pass handle to
 --   continuation. It will be closed when continuation finish
@@ -241,16 +240,16 @@ withCreateFile path mode = bracket (createFile path mode) close
 
 -- | Obtain handle to directory 
 openGroup
-  :: (IsDirectory dir, MonadIO m, HasCallStack)
+  :: (IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir      -- ^ Location. Either 'File' or 'Group'
   -> FilePath -- ^ Name of group
   -> m Group
-openGroup dir path = liftIO $ withFrozenCallStack $ evalContT $ do
+openGroup dir path = withFrozenCallStack $ contEither $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
-  lift $ fmap Group
-       $ checkHID p_err ("Cannot open group " ++ path)
-       $ h5g_open (getHID dir) c_path H5P_DEFAULT
+  fmap Group
+    $ contCheckHID p_err ("Cannot open group " ++ path)
+    $ h5g_open (getHID dir) c_path H5P_DEFAULT
 
 -- | @bracket@-style wrapper for 'openGroup'
 withOpenGroup
@@ -263,16 +262,16 @@ withOpenGroup dir path = bracket (openGroup dir path) close
 
 -- | Create group in HDF5 file or in some group.
 createGroup
-  :: (IsDirectory dir, MonadIO m, HasCallStack)
+  :: (IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir       -- ^ Location. Either 'File' or 'Group'
   -> FilePath  -- ^ Name of group
   -> m Group
-createGroup dir path = liftIO $ withFrozenCallStack $ evalContT $ do
+createGroup dir path = withFrozenCallStack $ contEither $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
-  lift $ fmap Group
-       $ checkHID p_err ("Cannot create group " ++ path)
-       $ h5g_create (getHID dir) c_path H5P_DEFAULT H5P_DEFAULT H5P_DEFAULT
+  fmap Group
+    $ contCheckHID p_err ("Cannot create group " ++ path)
+    $ h5g_create (getHID dir) c_path H5P_DEFAULT H5P_DEFAULT H5P_DEFAULT
 
 -- | @bracket@-style wrapper for 'createGroup'
 withCreateGroup
@@ -285,10 +284,10 @@ withCreateGroup dir path = bracket (createGroup dir path) close
 
 -- | List all names in the group
 listGroup
-  :: (IsDirectory dir, MonadIO m, HasCallStack)
+  :: (IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir -- ^ Location to use
   -> m [FilePath]
-listGroup dir = liftIO $ withFrozenCallStack $ evalContT $ do
+listGroup dir = withFrozenCallStack $ contEither$ do
   p_err <- ContT $ alloca
   p_idx <- ContT $ alloca
   names <- lift  $ newIORef []
@@ -297,23 +296,22 @@ listGroup dir = liftIO $ withFrozenCallStack $ evalContT $ do
         modifyIORef' names (name:)
         pure $ HErr 0
   callback <- ContT $ bracket (makeH5LIterate2 readNode) freeHaskellFunPtr
-  lift $ do
-    poke p_idx 0 -- We MUST set starting index
-    checkHErr p_err "Unable to iterate over group"
-       $ h5l_iterate (getHID dir) H5_INDEX_NAME H5_ITER_DEC p_idx callback nullPtr
-    readIORef names
+  liftIO $ poke p_idx 0 -- We MUST set starting index
+  contCheckHErr p_err "Unable to iterate over group"
+    $ h5l_iterate (getHID dir) H5_INDEX_NAME H5_ITER_DEC p_idx callback nullPtr
+  liftIO $ readIORef names
 
 -- | Delete object from group.
 delete
-  :: (IsDirectory dir, MonadIO m, HasCallStack)
+  :: (IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir      -- ^ Location to use
   -> FilePath -- ^ Name to delete
   -> m ()
-delete dir path = liftIO $ withFrozenCallStack $ evalContT $ do
+delete dir path = withFrozenCallStack $ contEither $ do
   p_err  <- ContT $ alloca
   c_name <- ContT $ withCString path
-  lift $ checkHErr p_err ("Unable to delete path: " ++ path)
-       $ h5l_delete (getHID dir) c_name H5P_DEFAULT
+  contCheckHErr p_err ("Unable to delete path: " ++ path)
+    $ h5l_delete (getHID dir) c_name H5P_DEFAULT
 
 -- | Check whether path in HDF5 file is valid.
 --
@@ -327,16 +325,16 @@ delete dir path = liftIO $ withFrozenCallStack $ evalContT $ do
 --   is only used to find file in which do lookup any group\/file
 --   handle will work.
 pathIsValid
-  :: (IsDirectory dir, MonadIO m, HasCallStack)
+  :: (IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir      -- ^ Location to use
   -> FilePath -- ^ Path to check
   -> Bool     -- ^ @check@ Whether to check that object pointed to path exists.
   -> m Bool
-pathIsValid dir path check = liftIO $ withFrozenCallStack $ evalContT $ do
+pathIsValid dir path check = withFrozenCallStack $ contEither $ do
   p_err  <- ContT $ alloca
   c_name <- ContT $ withCString path
-  lift $ checkHTri p_err "pathIsValid"
-       $ h5lt_path_valid (getHID dir) c_name (if check then 1 else 0)
+  contCheckHTri p_err "pathIsValid"
+    $ h5lt_path_valid (getHID dir) c_name (if check then 1 else 0)
 
 
 ----------------------------------------------------------------
@@ -367,40 +365,39 @@ pathIsValid dir path check = liftIO $ withFrozenCallStack $ evalContT $ do
 -- | Open existing dataset in given location. Returned 'Dataset' must
 --   be closed by call to 'close'.
 openDataset
-  :: (MonadIO m, IsDirectory dir, HasCallStack)
+  :: (MonadIO m, MonadThrow m, IsDirectory dir, HasCallStack)
   => dir      -- ^ Location
   -> FilePath -- ^ Path relative to location
   -> m Dataset
-openDataset dir path = liftIO $ withFrozenCallStack $ evalContT $ do
+openDataset dir path = withFrozenCallStack $ contEither $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
-  lift $  Dataset
-      <$> ( checkHID p_err ("Cannot open dataset " ++ path)
-          $ h5d_open2 (getHID dir) c_path H5P_DEFAULT)
+  fmap Dataset
+    $ contCheckHID p_err ("Cannot open dataset " ++ path)
+    $ h5d_open2 (getHID dir) c_path H5P_DEFAULT
 
 -- | Create new dataset at given location without writing any data to
 --   it. Returned 'Dataset' must be closed by call to 'close'.
 createEmptyDataset
-  :: (MonadIO m, IsDirectory dir, IsDataspace ext, HasCallStack)
+  :: (MonadIO m, MonadThrow m, IsDirectory dir, IsDataspace ext, HasCallStack)
   => dir                -- ^ Location
   -> FilePath           -- ^ Path relative to location
   -> Type               -- ^ Element type
   -> ext                -- ^ Extent of dataset
   -> [Property Dataset] -- ^ Dataset creation properties
   -> m Dataset
-createEmptyDataset dir path ty ext props = liftIO $ evalContT $ do
+createEmptyDataset dir path ty ext props = withFrozenCallStack $ contEither $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
   space  <- ContT $ withCreateDataspaceFromDSpace ext
   tid    <- ContT $ withType ty
   plist  <- ContT $ withDatasetProps $ mconcat props
-  lift $ withFrozenCallStack
-       $ fmap Dataset
-       $ checkHID p_err ("Unable to create dataset")
-       $ h5d_create (getHID dir) c_path tid (getHID space)
-         H5P_DEFAULT
-         (getHID plist)
-         H5P_DEFAULT
+  fmap Dataset
+    $ contCheckHID p_err ("Unable to create dataset")
+    $ h5d_create (getHID dir) c_path tid (getHID space)
+      H5P_DEFAULT
+      (getHID plist)
+      H5P_DEFAULT
 
 
 -- | Open dataset and pass handle to continuation. Dataset will be
@@ -431,26 +428,22 @@ withCreateEmptyDataset dir path ty ext props = bracket
 
 -- | Open and read dataset from either file or group.
 readAllAt
-  :: (ArrayLike a, IsDirectory dir, MonadIO m, HasCallStack)
+  :: (ArrayLike a, IsDirectory dir, MonadIO m, MonadMask m, HasCallStack)
   => dir      -- ^ Location in HDF5 file
   -> FilePath -- ^ Dataset name
   -> m a
-readAllAt dir path
-  = liftIO
-  $ withOpenDataset dir path
-  $ \dset -> readAll dset
+readAllAt dir path = withOpenDataset dir path readAll
 
 -- | Create dataset and write haskell array into it.
 writeAllAt
-  :: forall a dir m. (ArrayLike a, IsDirectory dir, MonadIO m, HasCallStack)
+  :: forall a dir m. (ArrayLike a, IsDirectory dir, MonadIO m, MonadMask m, HasCallStack)
   => dir                -- ^ Location in HDF5 file
   -> FilePath           -- ^ Name dataset to create
   -> [Property Dataset] -- ^ Dataset properties
   -> a                  -- ^ Value to write  
   -> m ()
 writeAllAt dir path prop a
-  = liftIO
-  $ withCreateEmptyDataset dir path (typeH5 @(ElementOf a)) (getExtent a) prop
+  = withCreateEmptyDataset dir path (typeH5 @(ElementOf a)) (getExtent a) prop
   $ \dset -> writeAll dset a
 
 -- | Read dataset from HDF5 using 'SerializeDSet' machinery.
@@ -484,18 +477,17 @@ writeDatasetAt dir path a
 --
 --   * A chunked dataset with fixed dimensions if the new dimension
 --     sizes are less than the maximum sizes set with maxdims
-setDatasetExtent :: (HasCallStack, IsExtent dim, MonadIO m) => Dataset -> dim -> m ()
-setDatasetExtent dset dim = liftIO $ evalContT $ do
+setDatasetExtent :: (HasCallStack, IsExtent dim, MonadIO m, MonadThrow m) => Dataset -> dim -> m ()
+setDatasetExtent dset dim = contEither $ do
   p_err         <- ContT $ alloca
   (r_ext,p_ext) <- withEncodedExtent $ encodeExtent dim
   spc    <- ContT $ withDataspace dset
-  r_dset <- lift
-          $ checkCInt p_err "Cannot get rank of dataspace's extent"
+  r_dset <- contCheckCInt p_err "Cannot get rank of dataspace's extent"
           $ h5s_get_simple_extent_ndims (getHID spc)
   when (fromIntegral r_ext /= r_dset) $ throwM $
     Error "Rank of dataset and rank of new extent do not match" []
-  lift $ checkHErr p_err "Failed to set new extent for a dataset"
-       $ h5d_set_extent (getHID dset) p_ext
+  contCheckHErr p_err "Failed to set new extent for a dataset"
+    $ h5d_set_extent (getHID dset) p_ext
 
 
 

@@ -27,6 +27,7 @@ module HDF5.HL.Serialize
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
+import Control.Monad.Catch
 import Data.Functor.Identity
 import Data.Complex                (Complex)
 import Data.Vector                 qualified as V
@@ -92,26 +93,26 @@ writeAll dset a = liftIO $
 
 -- | Read data from dataset using slab selection
 readSlab
-  :: forall a m. (ArrayLike a, MonadIO m, HasCallStack)
+  :: forall a m. (ArrayLike a, MonadIO m, MonadThrow m, HasCallStack)
   => Dataset    -- ^ Dataset to read from
   -> ExtentOf a -- ^ Offset into array
   -> ExtentOf a -- ^ Array size
   -> m a
 readSlab d off sz = liftIO $ withDataspace d $ \spc_file -> do
-  basicReadFromSlab sz $ \ptr -> evalContT $ do
+  basicReadFromSlab sz $ \ptr -> contEither $ do
     p_err   <- ContT alloca
     lift $ setSlabSelection spc_file off sz
     spc_mem <- ContT $ withCreateDataspaceFromExtent sz
     tid     <- ContT $ withType (typeH5 @(ElementOf a))
     --
-    lift $ checkHErr p_err "Reading dataset data failed"
-         $ h5d_read (getHID d) tid
-             (getHID spc_mem) (getHID spc_file)
-             H5P_DEFAULT (castPtr ptr)
+    contCheckHErr p_err "Reading dataset data failed"
+      $ h5d_read (getHID d) tid
+          (getHID spc_mem) (getHID spc_file)
+          H5P_DEFAULT (castPtr ptr)
 
 -- | Write provided data at given offset.
 writeSlab
-  :: forall a m. (ArrayLike a, MonadIO m, HasCallStack)
+  :: forall a m. (ArrayLike a, MonadIO m, MonadThrow m, HasCallStack)
   => Dataset
   -> ExtentOf a -- ^ Offset into array
   -> a
@@ -123,9 +124,9 @@ writeSlab dset off a = liftIO $ do
     lift $ setSlabSelection spc_file off (getExtent a)
     spc_mem  <- ContT $ withCreateDataspaceFromExtent $ getExtent a
     tid      <- ContT $ withType (typeH5 @(ElementOf a))
-    lift $ checkHErr p_err "Writing dataset data failed"
-         $ h5d_write (getHID dset) tid
-             (getHID spc_mem) (getHID spc_file) H5P_DEFAULT ptr
+    contCheckHErr p_err "Writing dataset data failed"
+      $ h5d_write (getHID dset) tid
+          (getHID spc_mem) (getHID spc_file) H5P_DEFAULT ptr
 
 
 ----------------------------------------------------------------
