@@ -13,6 +13,9 @@ module HDF5.HL.Attribute
   , writeAttr
     -- * Type class API
   , SerializeAttr(..)
+  , writeAttributes
+  , readAttributes
+  , readAttributesEither
   , AttrTy(..)
     -- ** Deriving
   , AsAttributeValue(..)
@@ -151,6 +154,32 @@ class SerializeAttr a where
   type AttrType a :: AttrTy
   attrParser :: AttributeParser (AttrType a) a
   attrWriter :: a -> AttributeWriter (AttrType a)
+
+-- | Write haskell value as HDF5 attributes.
+writeAttributes
+  :: (SerializeAttr a, HasAttrs d, MonadIO m, AttrType a ~ IsAttr)
+  => d -- ^ HDF5 object
+  -> a -- ^ Value to serialize
+  -> m ()
+writeAttributes d a
+  = liftIO $ runAttributeWriter d (attrWriter a)
+
+-- | Read haskell value from HDF5 attributes.
+readAttributes
+  :: (SerializeAttr a, HasAttrs d, MonadIO m, AttrType a ~ IsAttr)
+  => d -- ^ HDF5 object
+  -> m a
+readAttributes d
+  = liftIO $ runAttributeParser d attrParser
+
+-- | Read haskell value from HDF5 attributes.
+readAttributesEither
+  :: (SerializeAttr a, HasAttrs d, MonadIO m, AttrType a ~ IsAttr)
+  => d -- ^ HDF5 object
+  -> m (Either AttributeParseError a)
+readAttributesEither d
+  = liftIO $ runAttributeParserEither d attrParser
+
 
 -- | Type tag for testing whether parser\/writer could be used or it
 --   merely describes how attribute values should be parsed if
