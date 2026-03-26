@@ -53,10 +53,13 @@ import Data.Vector.Storable        qualified as VS
 import Data.Vector.Unboxed         qualified as VU
 import Data.Vector.Strict          qualified as VV
 import Data.Vector.Primitive       qualified as VP
+import Data.Proxy
 import Foreign.Storable
 import Foreign.C.String
 import Foreign.Marshal
 import GHC.Stack
+import GHC.Generics
+import GHC.TypeLits
 
 import HDF5.HL.Unsafe.Types
 import HDF5.HL.Unsafe.Wrappers
@@ -330,6 +333,28 @@ instance ArrayLike a => SerializeAttr (AsAttributeValue a) where
   type AttrType (AsAttributeValue a) = IsAttrValue
   attrParser = coerce (parseAttrValue @a)
   attrWriter = coerce (writeAttrValue @a)
+
+
+instance (Generic a, GSerializeAttr (Rep a)) => SerializeAttr (Generically a) where
+  type AttrType (Generically a) = IsAttr
+  attrParser = Generically . to <$> gattrParser
+  attrWriter (Generically a) = gattrWriter $ from a
+
+class GSerializeAttr f where
+  gattrParser :: AttributeParser IsAttr (f p)
+  gattrWriter :: f p -> AttributeWriter IsAttr
+
+deriving newtype instance GSerializeAttr f => GSerializeAttr (M1 D c f)
+deriving newtype instance GSerializeAttr f => GSerializeAttr (M1 C c f)
+instance (GSerializeAttr f, GSerializeAttr g) => GSerializeAttr (f :*: g) where
+  gattrParser = liftA2 (:*:) gattrParser gattrParser
+  gattrWriter (f :*: g) = gattrWriter f <> gattrWriter g
+
+instance ( KnownSymbol field, SerializeAttr a
+         ) => GSerializeAttr (M1 S (MetaSel (Just field) u ss ds) (K1 i a)) where
+  gattrParser = parseAttrSet (symbolVal (Proxy @field))
+              $ coerce (attrParser @a)
+  gattrWriter (M1 (K1 a)) = writeAttrSet (symbolVal (Proxy @field)) attrWriter a
 
 
 
