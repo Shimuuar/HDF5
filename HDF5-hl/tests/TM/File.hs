@@ -1,6 +1,9 @@
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE DerivingStrategies   #-}
+{-# LANGUAGE DerivingVia          #-}
+{-# LANGUAGE ImportQualifiedPost  #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE TypeApplications     #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- |
 module TM.File (tests) where
 
@@ -10,7 +13,9 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import System.IO.Temp
 import System.FilePath   ((</>))
+import GHC.Generics      (Generic,Generically(..))
 import HDF5.HL           qualified as H5
+import HDF5.HL.Attribute qualified as H5
 
 tests :: TestTree
 tests = testGroup "Files"
@@ -85,6 +90,17 @@ tests = testGroup "Files"
         H5.writeAllAt h5 "foo" [] ([1..10]::[Int])
         assertEqual "" True =<< H5.pathIsValid h5 "foo"  True
         assertEqual "" True =<< H5.pathIsValid h5 "/foo" True
+    -- 
+  , testCase "Attributes" $ withDir $ \dir -> do
+      let path = dir </> "test.h5"
+      H5.withCreateFile path H5.CreateTrunc $ \h5 -> do
+        let x = Foo{foo=11, bar=Bar 22 33}
+        H5.writeAttributes h5 x
+        x' <- H5.readAttributes h5
+        assertEqual "" x x'
+        assertEqual "foo"    (Just 11) =<< H5.readAttrMay @Int h5 "foo"
+        assertEqual "bar/a1" (Just 22) =<< H5.readAttrMay @Int h5 "bar/a1"
+        assertEqual "bar/a2" (Just 33) =<< H5.readAttrMay @Int h5 "bar/a2"
   ]
 
 withDir :: (FilePath -> IO a) -> IO a
@@ -95,3 +111,19 @@ shouldThrowH5 msg io
   = (io >> assertFailure ("Show raise exception: "++msg))
   `catch`
     (\(_::H5.Error) -> pure ())
+
+
+
+data Foo = Foo
+  { foo :: Int
+  , bar :: Bar
+  }
+  deriving stock (Eq,Show,Generic)
+  deriving H5.SerializeAttr via Generically Foo
+
+data Bar = Bar
+  { a1 :: Int
+  , a2 :: Int
+  }
+  deriving stock (Eq,Show,Generic)
+  deriving H5.SerializeAttr via Generically Bar

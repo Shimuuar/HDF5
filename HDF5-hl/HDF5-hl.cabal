@@ -62,7 +62,7 @@ Library
 
 Test-suite HDF5-hl-tests
   type:             exitcode-stdio-1.0
-  Default-Language: Haskell2010
+  Default-Language: GHC2021
   ghc-options:      -Wall
   Build-Depends:    base
                   , HDF5-hl
