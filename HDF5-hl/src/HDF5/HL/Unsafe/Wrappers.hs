@@ -24,6 +24,7 @@ module HDF5.HL.Unsafe.Wrappers
 import Control.Monad.Catch
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Cont
+import Control.Monad.IO.Class
 import Foreign.Ptr
 import Foreign.Marshal
 import GHC.Stack
@@ -84,8 +85,8 @@ class IsObject a => HasData a where
                  -> IO ()
 
 
-withDataspace :: (HasData a) => a -> (Dataspace -> IO b) -> IO b
-withDataspace a = bracket (getDataspaceIO a) basicClose
+withDataspace :: (HasData a, MonadIO m, MonadMask m) => a -> (Dataspace -> m b) -> m b
+withDataspace a = bracket (liftIO $ getDataspaceIO a) (liftIO . basicClose)
 
 
 ----------------------------------------------------------------
