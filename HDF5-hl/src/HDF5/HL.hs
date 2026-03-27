@@ -200,7 +200,7 @@ openFile path = \case
            -> createFile path CreateExcl
     Left e -> throwM e
   where
-    native mode = withFrozenCallStack $ contEitherVal $ do
+    native mode = propagateEither $ do
       p_err  <- ContT $ alloca
       c_path <- ContT $ withCString path
       fmap File
@@ -219,7 +219,7 @@ withOpenFile path mode = bracket (openFile path mode) close
 --   open existing file for modification. Returned handle must be
 --   closed using 'close'.
 createFile :: (MonadIO m, MonadThrow m, HasCallStack) => FilePath -> CreateMode -> m File
-createFile path mode = withFrozenCallStack $ contEither $ do
+createFile path mode = propagateError $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
   fmap File
@@ -244,7 +244,7 @@ openGroup
   => dir      -- ^ Location. Either 'File' or 'Group'
   -> FilePath -- ^ Name of group
   -> m Group
-openGroup dir path = withFrozenCallStack $ contEither $ do
+openGroup dir path = propagateError $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
   fmap Group
@@ -266,7 +266,7 @@ createGroup
   => dir       -- ^ Location. Either 'File' or 'Group'
   -> FilePath  -- ^ Name of group
   -> m Group
-createGroup dir path = withFrozenCallStack $ contEither $ do
+createGroup dir path = propagateError $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
   fmap Group
@@ -287,7 +287,7 @@ listGroup
   :: (IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir -- ^ Location to use
   -> m [FilePath]
-listGroup dir = withFrozenCallStack $ contEither$ do
+listGroup dir = propagateError$ do
   p_err <- ContT $ alloca
   p_idx <- ContT $ alloca
   names <- lift  $ newIORef []
@@ -307,7 +307,7 @@ delete
   => dir      -- ^ Location to use
   -> FilePath -- ^ Name to delete
   -> m ()
-delete dir path = withFrozenCallStack $ contEither $ do
+delete dir path = propagateError $ do
   p_err  <- ContT $ alloca
   c_name <- ContT $ withCString path
   contCheckHErr p_err ("Unable to delete path: " ++ path)
@@ -330,7 +330,7 @@ pathIsValid
   -> FilePath -- ^ Path to check
   -> Bool     -- ^ @check@ Whether to check that object pointed to path exists.
   -> m Bool
-pathIsValid dir path check = withFrozenCallStack $ contEither $ do
+pathIsValid dir path check = propagateError $ do
   p_err  <- ContT $ alloca
   c_name <- ContT $ withCString path
   contCheckHTri p_err "pathIsValid"
@@ -369,7 +369,7 @@ openDataset
   => dir      -- ^ Location
   -> FilePath -- ^ Path relative to location
   -> m Dataset
-openDataset dir path = withFrozenCallStack $ contEither $ do
+openDataset dir path = propagateError $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
   fmap Dataset
@@ -386,7 +386,7 @@ createEmptyDataset
   -> ext                -- ^ Extent of dataset
   -> [Property Dataset] -- ^ Dataset creation properties
   -> m Dataset
-createEmptyDataset dir path ty ext props = withFrozenCallStack $ contEither $ do
+createEmptyDataset dir path ty ext props = propagateError $ do
   p_err  <- ContT $ alloca
   c_path <- ContT $ withCString path
   space  <- ContT $ withCreateDataspaceFromDSpace ext
@@ -478,7 +478,7 @@ writeDatasetAt dir path a
 --   * A chunked dataset with fixed dimensions if the new dimension
 --     sizes are less than the maximum sizes set with maxdims
 setDatasetExtent :: (HasCallStack, IsExtent dim, MonadIO m, MonadThrow m) => Dataset -> dim -> m ()
-setDatasetExtent dset dim = contEither $ do
+setDatasetExtent dset dim = propagateError $ do
   p_err         <- ContT $ alloca
   (r_ext,p_ext) <- withEncodedExtent $ encodeExtent dim
   spc    <- ContT $ withDataspace dset

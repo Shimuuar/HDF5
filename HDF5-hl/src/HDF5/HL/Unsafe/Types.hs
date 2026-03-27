@@ -105,7 +105,7 @@ withType (Type hid token) fun = IO $ \s ->
     IO action# -> keepAlive# token s action#
 
 instance Show Type where
-  show ty = unsafePerformIO $ contEither $ do
+  show ty = unsafePerformIO $ propagateError $ do
     p_err <- ContT $ alloca
     tid   <- ContT $ withType ty
     p_sz  <- ContT $ alloca
@@ -181,7 +181,7 @@ pattern Array ty dim <- (matchArray -> Just (ty, dim))
     Array ty dim = makeArray ty dim
 
 makeArray :: Type -> [Int] -> Type
-makeArray ty dim = unsafePerformIO $ contEither $ do
+makeArray ty dim = unsafePerformIO $ propagateError $ do
   tid   <- ContT $ withType ty
   p_dim <- ContT $ withArray (fromIntegral <$> dim)
   p_err <- ContT $ alloca

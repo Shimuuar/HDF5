@@ -21,8 +21,8 @@ module HDF5.HL.Unsafe.Error
   , contCheckHTri
   , contCheckCInt
   , contCheckCLLong
-  , contEither
-  , contEitherVal
+  , propagateError
+  , propagateEither
   , abort
   ) where
 
@@ -218,14 +218,14 @@ abort :: Ptr HID -> String -> ContT (Either Error r) IO a
 abort p_err msg = do e <- liftIO (decodeError p_err msg)
                      ContT $ \_ -> pure (Left e)
 
-contEither :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m a
-contEither action = do
+propagateError :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m a
+propagateError action = withFrozenCallStack $ do
   liftIO (runContT action (pure . Right)) >>= \case
     Left  e -> throwM e
     Right a -> pure a
 
-contEitherVal :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m (Either Error a)
-contEitherVal action = liftIO (runContT action (pure . Right))
+propagateEither :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m (Either Error a)
+propagateEither action = liftIO (runContT action (pure . Right))
 
 
 ----------------------------------------------------------------

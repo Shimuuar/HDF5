@@ -269,7 +269,7 @@ runParseFromDataspace
   :: (IsDataspace a, MonadIO m, MonadThrow m)
   => Dataspace
   -> m (Either DataspaceParseError a)
-runParseFromDataspace (getHID -> hid) = withFrozenCallStack $ contEither $ do
+runParseFromDataspace (getHID -> hid) = propagateError $ do
   p_err <- ContT alloca
   lift (h5s_get_simple_extent_type hid p_err) >>= \case
     H5S_NULL   -> pure $ case decodeNullDataspace of
@@ -314,7 +314,7 @@ createDataspaceFromExtent
   :: (IsExtent dim, MonadIO m, MonadThrow m, HasCallStack)
   => dim       -- ^ Extent of dataspace
   -> m Dataspace
-createDataspaceFromExtent dim = withFrozenCallStack $ contEither $ do
+createDataspaceFromExtent dim = propagateError $ do
   p_err      <- ContT $ alloca
   (rank,ptr) <- withEncodedExtent $ encodeExtent dim
   fmap Dataspace
@@ -328,7 +328,7 @@ createDataspaceFromDSpace
   :: (IsDataspace dim, MonadIO m, MonadThrow m, HasCallStack)
   => dim       -- ^ Extent of dataspace
   -> m Dataspace
-createDataspaceFromDSpace dspace = withFrozenCallStack $ contEither $ do
+createDataspaceFromDSpace dspace = propagateError $ do
   p_err <- ContT $ alloca
   case encodeDataspace dspace of
     Nothing -> fmap Dataspace
@@ -367,7 +367,7 @@ setSlabSelection
   -> dim        -- ^ Offset
   -> dim        -- ^ Size of selection
   -> m ()
-setSlabSelection (Dataspace hid) off sz = withFrozenCallStack $ contEither $ do
+setSlabSelection (Dataspace hid) off sz = propagateError $ do
   p_err <- ContT alloca
   --
   rank_dset <- contCheckCInt p_err "Cannot get rank of dataspace's extent"
@@ -400,7 +400,7 @@ dataspaceRank
   :: (HasCallStack, MonadIO m, MonadThrow m)
   => Dataspace
   -> m (Maybe Int)
-dataspaceRank (Dataspace hid) = withFrozenCallStack $ contEither $ do
+dataspaceRank (Dataspace hid) = propagateError $ do
   p_err <- ContT alloca
   lift (h5s_get_simple_extent_type hid p_err) >>= \case
       H5S_NULL   -> pure   Nothing

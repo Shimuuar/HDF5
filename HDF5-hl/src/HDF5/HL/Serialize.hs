@@ -99,7 +99,7 @@ readSlab
   -> ExtentOf a -- ^ Array size
   -> m a
 readSlab d off sz = liftIO $ withDataspace d $ \spc_file -> do
-  basicReadFromSlab sz $ \ptr -> contEither $ do
+  basicReadFromSlab sz $ \ptr -> propagateError $ do
     p_err   <- ContT alloca
     lift $ setSlabSelection spc_file off sz
     spc_mem <- ContT $ withCreateDataspaceFromExtent sz
