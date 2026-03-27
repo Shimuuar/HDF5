@@ -68,16 +68,16 @@ import Prelude hiding (read,readIO)
 -- | Reads full content of dataset\/attribute into haskell data
 --   structure.
 readAll
-  :: forall a d m. (ArrayLike a, HasData d, MonadIO m, HasCallStack)
+  :: forall a d m. (ArrayLike a, HasData d, MonadIO m, MonadMask m, HasCallStack)
   => d -> m a
-readAll dset = liftIO $ withDataspace dset $ \spc_file -> do
+readAll dset = withDataspace dset $ \spc_file -> do
   ext <- dataspaceExtent @_ @(ExtentOf a) spc_file >>= \case
     Left  _ -> error "FIXME"
     Right x -> pure x
-  basicReadFromSlab ext $ \ptr -> evalContT $ do
+  res <- liftIO $ basicReadFromSlab ext $ \ptr -> evalContT $ do
     p_err   <- ContT alloca
-    lift $ unsafeReadAll p_err dset (typeH5 @(ElementOf a)) ptr
-
+    fmap Right $ lift $ unsafeReadAll p_err dset (typeH5 @(ElementOf a)) ptr
+  either throwM pure res
 
 -- | Writing into dataset\/attributes without offset. It's assumed
 --   that dataset was created with correct size.
@@ -93,22 +93,22 @@ writeAll dset a = liftIO $
 
 -- | Read data from dataset using slab selection
 readSlab
-  :: forall a m. (ArrayLike a, MonadIO m, MonadThrow m, HasCallStack)
+  :: forall a m. (ArrayLike a, MonadIO m, MonadMask m, HasCallStack)
   => Dataset    -- ^ Dataset to read from
   -> ExtentOf a -- ^ Offset into array
   -> ExtentOf a -- ^ Array size
   -> m a
-readSlab d off sz = liftIO $ withDataspace d $ \spc_file -> do
-  basicReadFromSlab sz $ \ptr -> propagateError $ do
+readSlab d off sz = withDataspace d $ \spc_file -> do
+  res <- liftIO $ basicReadFromSlab sz $ \ptr -> propagateEither $ do
     p_err   <- ContT alloca
     lift $ setSlabSelection spc_file off sz
     spc_mem <- ContT $ withCreateDataspaceFromExtent sz
     tid     <- ContT $ withType (typeH5 @(ElementOf a))
-    --
     contCheckHErr p_err "Reading dataset data failed"
       $ h5d_read (getHID d) tid
           (getHID spc_mem) (getHID spc_file)
           H5P_DEFAULT (castPtr ptr)
+  either throwM pure res
 
 -- | Write provided data at given offset.
 writeSlab
@@ -117,8 +117,8 @@ writeSlab
   -> ExtentOf a -- ^ Offset into array
   -> a
   -> m ()
-writeSlab dset off a = liftIO $ do
-  basicWriteToSlab a $ \ptr -> evalContT $ do
+writeSlab dset off a = do
+  res <- liftIO $ basicWriteToSlab a $ \ptr -> propagateEither $ do
     p_err    <- ContT alloca
     spc_file <- lift  $ getDataspaceIO dset
     lift $ setSlabSelection spc_file off (getExtent a)
@@ -127,7 +127,7 @@ writeSlab dset off a = liftIO $ do
     contCheckHErr p_err "Writing dataset data failed"
       $ h5d_write (getHID dset) tid
           (getHID spc_mem) (getHID spc_file) H5P_DEFAULT ptr
-
+  either throwM pure res
 
 ----------------------------------------------------------------
 -- Type classes for reading/writing
@@ -143,14 +143,17 @@ class (Element (ElementOf a), IsExtent (ExtentOf a)) => ArrayLike a where
   type ExtentOf  a
   -- | Primitive for writing of HDF5 arrays (and scalars)
   basicWriteToSlab
-    :: a                            -- ^ Value to pass
-    -> (Ptr (ElementOf a) -> IO ()) -- ^ Callback consuming buffer
-    -> IO ()
-  -- | Primitive for reading HDF5 arrays. 
+    :: a                           -- ^ Value to pass
+    -> (Ptr (ElementOf a) -> IO e) -- ^ Callback consuming buffer
+    -> IO e
+  -- | Primitive for reading HDF5 arrays. Note it's written in this
+  --   way in order to give control over pointer allocation to instances.
   basicReadFromSlab
-    :: ExtentOf a                   -- ^ Size of an array
-    -> (Ptr (ElementOf a) -> IO ()) -- ^ Callback which will read into elements
-    -> IO a
+    :: ExtentOf a
+       -- ^ Size of an array
+    -> (Ptr (ElementOf a) -> IO (Either Error ()))
+       -- ^ Callback which will read data provided buffer.
+    -> IO (Either Error a)
   -- | Compute extent of data
   getExtent :: a -> ExtentOf a
 
@@ -185,9 +188,10 @@ instance Element a => ArrayLike (SerializeAsScalar a) where
   type ElementOf (SerializeAsScalar a) = a
   type ExtentOf  (SerializeAsScalar a) = ()
   getExtent _ = ()
-  basicReadFromSlab () action = allocaElement $ \p -> do
-    action p
-    SerializeAsScalar <$> peekH5 p
+  basicReadFromSlab () action = allocaElement $ \p ->
+    action p >>= \case
+      Left  e  -> pure $ Left e
+      Right () -> Right . SerializeAsScalar <$> peekH5 p
   basicWriteToSlab (SerializeAsScalar a) action = allocaElement $ \p -> do
     pokeH5 p a
     action p
@@ -217,8 +221,9 @@ instance (Element a) => ArrayLike (VecHDF5 a) where
   basicWriteToSlab  v = unsafeWithH5 v
   basicReadFromSlab sz action = do
     buf <- mallocVectorH5 sz
-    withForeignPtr buf action
-    pure $! unsafeFromForeignPtr buf sz
+    withForeignPtr buf action >>= \case
+      Left  e  -> pure (Left e)
+      Right () -> pure $! Right $! unsafeFromForeignPtr buf sz
 
 
 instance (Element a) => ArrayLike [a] where
@@ -226,42 +231,42 @@ instance (Element a) => ArrayLike [a] where
   type ExtentOf  [a] = Int
   getExtent = length
   basicWriteToSlab v = basicWriteToSlab (VG.fromList v :: VecHDF5 a)
-  basicReadFromSlab n = fmap VG.toList . basicReadFromSlab @(VecHDF5 a) n
+  basicReadFromSlab n = (fmap . fmap) VG.toList . basicReadFromSlab @(VecHDF5 a) n
 
 instance (Element a) => ArrayLike (V.Vector a) where
   type ElementOf (V.Vector a) = a
   type ExtentOf  (V.Vector a) = Int
   getExtent = V.length
   basicWriteToSlab v = basicWriteToSlab (VG.convert v :: VecHDF5 a)
-  basicReadFromSlab n = fmap VG.convert . basicReadFromSlab @(VecHDF5 a) n
+  basicReadFromSlab n = (fmap . fmap) VG.convert . basicReadFromSlab @(VecHDF5 a) n
 
 instance (Element a) => ArrayLike (VV.Vector a) where
   type ElementOf (VV.Vector a) = a
   type ExtentOf  (VV.Vector a) = Int
   getExtent = VV.length
   basicWriteToSlab v = basicWriteToSlab (VG.convert v :: VecHDF5 a)
-  basicReadFromSlab n = fmap VG.convert . basicReadFromSlab @(VecHDF5 a) n
+  basicReadFromSlab n = (fmap . fmap) VG.convert . basicReadFromSlab @(VecHDF5 a) n
 
 instance (Storable a, Element a) => ArrayLike (VS.Vector a) where
   type ElementOf (VS.Vector a) = a
   type ExtentOf  (VS.Vector a) = Int
   getExtent = VS.length
   basicWriteToSlab v = basicWriteToSlab (VG.convert v :: VecHDF5 a)
-  basicReadFromSlab n = fmap VG.convert . basicReadFromSlab @(VecHDF5 a) n
+  basicReadFromSlab n = (fmap . fmap) VG.convert . basicReadFromSlab @(VecHDF5 a) n
 
 instance (VP.Prim a, Element a) => ArrayLike (VP.Vector a) where
   type ElementOf (VP.Vector a) = a
   type ExtentOf  (VP.Vector a) = Int
   getExtent = VP.length
   basicWriteToSlab v = basicWriteToSlab (VG.convert v :: VecHDF5 a)
-  basicReadFromSlab n = fmap VG.convert . basicReadFromSlab @(VecHDF5 a) n
+  basicReadFromSlab n = (fmap . fmap) VG.convert . basicReadFromSlab @(VecHDF5 a) n
 
 instance (VU.Unbox a, Element a) => ArrayLike (VU.Vector a) where
   type ElementOf (VU.Vector a) = a
   type ExtentOf  (VU.Vector a) = Int
   getExtent = VU.length
   basicWriteToSlab v = basicWriteToSlab (VG.convert v :: VecHDF5 a)
-  basicReadFromSlab n = fmap VG.convert . basicReadFromSlab @(VecHDF5 a) n
+  basicReadFromSlab n = (fmap . fmap) VG.convert . basicReadFromSlab @(VecHDF5 a) n
 
 
 deriving via SerializeAsArray [a]
