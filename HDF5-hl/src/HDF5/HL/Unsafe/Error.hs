@@ -224,7 +224,7 @@ propagateError action = withFrozenCallStack $ do
     Left  e -> throwM e
     Right a -> pure a
 
-propagateEither :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m (Either Error a)
+propagateEither :: (MonadIO m) => ContT (Either Error a) IO a -> m (Either Error a)
 propagateEither action = liftIO (runContT action (pure . Right))
 
 

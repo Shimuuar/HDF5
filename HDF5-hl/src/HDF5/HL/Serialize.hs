@@ -72,24 +72,25 @@ readAll
   => d -> m a
 readAll dset = withDataspace dset $ \spc_file -> do
   ext <- dataspaceExtent @_ @(ExtentOf a) spc_file >>= \case
-    Left  _ -> error "FIXME"
+    Left  e -> throwM e
     Right x -> pure x
   res <- liftIO $ basicReadFromSlab ext $ \ptr -> evalContT $ do
-    p_err   <- ContT alloca
-    fmap Right $ lift $ unsafeReadAll p_err dset (typeH5 @(ElementOf a)) ptr
+    p_err <- ContT alloca
+    lift $ unsafeReadAll p_err dset (typeH5 @(ElementOf a)) ptr
   either throwM pure res
 
 -- | Writing into dataset\/attributes without offset. It's assumed
 --   that dataset was created with correct size.
 writeAll
-  :: forall a d m. (ArrayLike a, HasData d, MonadIO m, HasCallStack)
+  :: forall a d m. (ArrayLike a, HasData d, MonadIO m, MonadThrow m, HasCallStack)
   => d -- ^ Dataset or attribute
   -> a -- ^ Value to write
   -> m ()
-writeAll dset a = liftIO $
-  basicWriteToSlab a $ \ptr -> evalContT $ do
+writeAll dset a = do
+  res <- liftIO $ basicWriteToSlab a $ \ptr -> evalContT $ do
     p_err <- ContT alloca
     lift $ unsafeWriteAll p_err dset (typeH5 @(ElementOf a)) ptr
+  either throwM pure res
 
 -- | Read data from dataset using slab selection
 readSlab
