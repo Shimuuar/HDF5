@@ -22,8 +22,8 @@ module HDF5.HL.Unsafe.Wrappers
   ) where
 
 import Control.Monad.Catch
-import Control.Monad.Trans.Class
 import Control.Monad.Trans.Cont
+import Control.Monad.IO.Class
 import Foreign.Ptr
 import Foreign.Marshal
 import GHC.Stack
@@ -74,18 +74,18 @@ class IsObject a => HasData a where
                  -> a       -- ^ Object handle
                  -> Type    -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer to read to
-                 -> IO ()
+                 -> IO (Either Error ())
   -- | Write full dataset at once
   unsafeWriteAll :: HasCallStack
                  => Ptr HID -- ^ Error pointer
                  -> a       -- ^ Object handle
                  -> Type    -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer with data
-                 -> IO ()
+                 -> IO (Either Error ())
 
 
-withDataspace :: (HasData a) => a -> (Dataspace -> IO b) -> IO b
-withDataspace a = bracket (getDataspaceIO a) basicClose
+withDataspace :: (HasData a, MonadIO m, MonadMask m) => a -> (Dataspace -> m b) -> m b
+withDataspace a = bracket (liftIO $ getDataspaceIO a) (liftIO . basicClose)
 
 
 ----------------------------------------------------------------
@@ -158,16 +158,16 @@ instance HasData Dataset where
       fmap Dataspace
     $ checkHID p_err "Cannot read dataset's dataspace"
     $ h5d_get_space hid
-  unsafeReadAll p_err (Dataset hid) ty buf = evalContT $ withFrozenCallStack $ do
-    tid   <- ContT $ withType ty
-    lift $ checkHErr p_err "Reading dataset data failed"
-         $ h5d_read hid tid
-             h5s_ALL h5s_ALL H5P_DEFAULT (castPtr buf)
-  unsafeWriteAll p_err (Dataset hid) ty buf = evalContT $ withFrozenCallStack $ do
-    tid   <- ContT $ withType ty
-    lift $ checkHErr p_err "Writing dataset data failed"
-         $ h5d_write hid tid
-             h5s_ALL h5s_ALL H5P_DEFAULT buf
+  unsafeReadAll p_err (Dataset hid) ty buf = propagateEither $ do
+    tid <- ContT $ withType ty
+    contCheckHErr p_err "Reading dataset data failed"
+      $ h5d_read hid tid
+          h5s_ALL h5s_ALL H5P_DEFAULT (castPtr buf)
+  unsafeWriteAll p_err (Dataset hid) ty buf = propagateEither $ do
+    tid <- ContT $ withType ty
+    contCheckHErr p_err "Writing dataset data failed"
+      $ h5d_write hid tid
+          h5s_ALL h5s_ALL H5P_DEFAULT buf
 
 instance HasAttrs Dataset
 
@@ -182,14 +182,14 @@ instance HasData Attribute where
     $ fmap Dataspace
     $ checkHID p_err "Cannot get attribute's dataspace"
     $ h5a_get_space hid
-  unsafeReadAll p_err (Attribute hid) ty buf = evalContT $ withFrozenCallStack $ do
-    tid   <- ContT $ withType ty
-    lift $ checkHErr p_err "Reading attribute data failed"
-         $ h5a_read hid tid (castPtr buf)
-  unsafeWriteAll p_err (Attribute hid) ty buf = evalContT $ withFrozenCallStack $ do
-    tid   <- ContT $ withType ty
-    lift $ checkHErr p_err "Writing Attribute data failed"
-         $ h5a_write hid tid (castPtr buf)
+  unsafeReadAll p_err (Attribute hid) ty buf = propagateEither $ do
+    tid <- ContT $ withType ty
+    contCheckHErr p_err "Reading attribute data failed"
+      $ h5a_read hid tid (castPtr buf)
+  unsafeWriteAll p_err (Attribute hid) ty buf = propagateEither $ do
+    tid <- ContT $ withType ty
+    contCheckHErr p_err "Writing Attribute data failed"
+      $ h5a_write hid tid (castPtr buf)
 
 
 ----------------------------------------------------------------

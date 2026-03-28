@@ -105,17 +105,17 @@ withType (Type hid token) fun = IO $ \s ->
     IO action# -> keepAlive# token s action#
 
 instance Show Type where
-  show ty = unsafePerformIO $ evalContT $ do
+  show ty = unsafePerformIO $ propagateError $ do
     p_err <- ContT $ alloca
     tid   <- ContT $ withType ty
     p_sz  <- ContT $ alloca
-    _     <- lift  $ checkHErr p_err "Can't show type"
-                   $ h5lt_dtype_to_text tid nullPtr h5lt_DDL p_sz
+    _     <- contCheckHErr p_err "Can't show type"
+           $ h5lt_dtype_to_text tid nullPtr h5lt_DDL p_sz
     sz    <- lift  $ peek p_sz
     p_str <- ContT $ allocaArray0 $ fromIntegral sz
-    lift $ do
-      checkHErr p_err "Can't show type" $ h5lt_dtype_to_text tid p_str h5lt_DDL p_sz
-      peekCString p_str
+    contCheckHErr p_err "Can't show type"
+      $ h5lt_dtype_to_text tid p_str h5lt_DDL p_sz
+    liftIO $ peekCString p_str
 
 
 -- | Compute size of HDF5 type.
@@ -181,7 +181,7 @@ pattern Array ty dim <- (matchArray -> Just (ty, dim))
     Array ty dim = makeArray ty dim
 
 makeArray :: Type -> [Int] -> Type
-makeArray ty dim = unsafePerformIO $ evalContT $ do
+makeArray ty dim = unsafePerformIO $ propagateError $ do
   tid   <- ContT $ withType ty
   p_dim <- ContT $ withArray (fromIntegral <$> dim)
   p_err <- ContT $ alloca
