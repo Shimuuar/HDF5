@@ -142,7 +142,34 @@ instance IsExtent Int where
   encodeExtent i = \f -> f (if i < 0 then error "Negative extent" else fromIntegral i)
 
 instance (IsExtent a, IsExtent b) => IsExtent (a,b) where
-  encodeExtent (a,b) f = encodeExtent a f <> encodeExtent b f
+  encodeExtent (a,b) fun = encodeExtent a fun <> encodeExtent b fun
+
+instance (IsExtent a, IsExtent b, IsExtent c) => IsExtent (a, b, c) where
+  encodeExtent (a, b, c) fun
+    = encodeExtent a fun <> encodeExtent b fun <> encodeExtent c fun
+
+instance (IsExtent a, IsExtent b, IsExtent c, IsExtent d
+         ) => IsExtent (a, b, c, d) where
+  encodeExtent (a, b, c, d) fun
+    = encodeExtent a fun <> encodeExtent b fun <> encodeExtent c fun <> encodeExtent d fun
+
+instance ( IsExtent a, IsExtent b, IsExtent c, IsExtent d
+         , IsExtent e ) => IsExtent (a, b, c, d, e) where
+  encodeExtent (a, b, c, d, e) fun
+    =  encodeExtent a fun <> encodeExtent b fun <> encodeExtent c fun <> encodeExtent d fun
+    <> encodeExtent e fun
+
+instance ( IsExtent a, IsExtent b, IsExtent c, IsExtent d
+         , IsExtent e, IsExtent f) => IsExtent (a, b, c, d, e, f) where
+  encodeExtent (a, b, c, d, e, f) fun
+    =  encodeExtent a fun <> encodeExtent b fun <> encodeExtent c fun <> encodeExtent d fun
+    <> encodeExtent e fun <> encodeExtent f fun
+
+instance ( IsExtent a, IsExtent b, IsExtent c, IsExtent d
+         , IsExtent e, IsExtent f, IsExtent g) => IsExtent (a, b, c, d, e, f, g) where
+  encodeExtent (a, b, c, d, e, f, g) fun
+    =  encodeExtent a fun <> encodeExtent b fun <> encodeExtent c fun <> encodeExtent d fun
+    <> encodeExtent e fun <> encodeExtent f fun <> encodeExtent g fun
 
 instance IsExtent a => IsExtent [a] where
   encodeExtent xs f = foldMap (\x -> encodeExtent x f) xs
@@ -217,6 +244,42 @@ instance IsDataspace (Growable Int64) where
 instance (IsDataspace a, IsDataspace b) => IsDataspace (a,b) where
   encodeDataspace (a,b) = (<>) (encodeDataspace a) (encodeDataspace b)
   decodeDataspace = liftA2 (,) decodeDataspace decodeDataspace
+
+instance (IsDataspace a, IsDataspace b, IsDataspace c) => IsDataspace (a, b, c) where
+  encodeDataspace (a, b, c)
+    = encodeDataspace a <> encodeDataspace b <> encodeDataspace c
+  decodeDataspace = (,,) <$> decodeDataspace <*> decodeDataspace <*> decodeDataspace
+
+instance (IsDataspace a, IsDataspace b, IsDataspace c, IsDataspace d
+         ) => IsDataspace (a, b, c, d) where
+  encodeDataspace (a, b, c, d)
+    = encodeDataspace a <> encodeDataspace b <> encodeDataspace c <> encodeDataspace d
+  decodeDataspace = (,,,) <$> decodeDataspace <*> decodeDataspace <*> decodeDataspace <*> decodeDataspace
+
+instance ( IsDataspace a, IsDataspace b, IsDataspace c, IsDataspace d
+         , IsDataspace e) => IsDataspace (a, b, c, d, e) where
+  encodeDataspace (a, b, c, d, e)
+    =  encodeDataspace a <> encodeDataspace b <> encodeDataspace c <> encodeDataspace d
+    <> encodeDataspace e
+  decodeDataspace = (,,,,) <$> decodeDataspace <*> decodeDataspace <*> decodeDataspace <*> decodeDataspace <*> decodeDataspace
+
+instance ( IsDataspace a, IsDataspace b, IsDataspace c, IsDataspace d
+         , IsDataspace e, IsDataspace f) => IsDataspace (a, b, c, d, e, f) where
+  encodeDataspace (a, b, c, d, e, f)
+    =  encodeDataspace a <> encodeDataspace b <> encodeDataspace c <> encodeDataspace d
+    <> encodeDataspace e <> encodeDataspace f
+  decodeDataspace
+    = (,,,,,) <$> decodeDataspace <*> decodeDataspace <*> decodeDataspace <*> decodeDataspace
+              <*> decodeDataspace <*> decodeDataspace
+
+instance ( IsDataspace a, IsDataspace b, IsDataspace c, IsDataspace d
+         , IsDataspace e, IsDataspace f, IsDataspace g) => IsDataspace (a, b, c, d, e, f, g) where
+  encodeDataspace (a, b, c, d, e, f, g)
+    =  encodeDataspace a <> encodeDataspace b <> encodeDataspace c <> encodeDataspace d
+    <> encodeDataspace e <> encodeDataspace f <> encodeDataspace g
+  decodeDataspace
+    = (,,,,,,) <$> decodeDataspace <*> decodeDataspace <*> decodeDataspace <*> decodeDataspace
+               <*> decodeDataspace <*> decodeDataspace <*> decodeDataspace
 
 instance (IsDataspace a) => IsDataspace [a] where
   encodeDataspace xs = do
