@@ -78,8 +78,10 @@ instance DimRepr Int64 where
 
 
 
--- | Type class for values representing some product of @Word64@ indexes.
---   It could be number for 1D arrays or some combination of tuples.
+-- | Type class for values representing size of array or scalar; that
+--   is product of `Word64`s. For 1D it's `Int`\/`Int64`\/`Word64`. For
+--   N-dimensional array extent could be represented by some tuple and
+--   in case when rank is not known statically lists could be used.
 class IsDataspace a => IsExtent a where
   -- | Encode extent. This fold over all dimensions of dataset for
   --   simple and scalar extents. Null extents should return @Nothing@.
@@ -87,15 +89,20 @@ class IsDataspace a => IsExtent a where
 
 
 -- | Type class for values representing dataspace. It could be either
---   null which is used for datasets containing no data, or
---   N-dimensional size and possibly maximal size.
+--   `null` which means no data is stored. Or it could be pair is size
+--   of array and maximum array size. Both are sequence of N
+--   `Word64`s, zero for scalars.
+--
+--   If data type doesn't store maximum size: `Int`\/`Int64`\/`Word64`
+--   and tuples of such types, maximum size is assumed to be same as size.
+--   If one needs to set maximum size 'Growable' should be used.
 class IsDataspace a where
-  -- |
+  -- | Encode pairs for 
   encodeDataspace :: Monoid m => a -> Maybe ((Word64 -> Word64 -> m) -> m)
   -- | Parser for dataset which could be used to decode from sequence
   --   of Dims.
   decodeDataspace :: Monad m => ParserDim m a
-  -- |
+  -- | How null dataspace should be interpreted.
   decodeNullDataspace :: Maybe a
   decodeNullDataspace = Nothing
 
@@ -117,6 +124,7 @@ instance IsDataspace Extent where
   decodeDataspace     = Simple <$> decodeDataspace
   decodeNullDataspace = Just Null
 
+-- | Data type which stores size and maximum size of dataspace.
 data Growable a = Growable !a !a
   deriving stock (Show,Eq,Ord)
 

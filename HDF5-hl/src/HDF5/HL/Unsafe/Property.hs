@@ -32,7 +32,8 @@ import HDF5.HL.Unsafe.Encoding
 -- Property lists
 ----------------------------------------------------------------
 
--- | Property lists for values of type p
+-- | Property lists for values of type p. This data type is used to
+--   specify properties of objects at their creation time.
 data Property p = NoProperty
                 | Property (Ptr HID -> PropertyHID p -> IO ())
 

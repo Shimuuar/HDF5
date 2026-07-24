@@ -92,7 +92,11 @@ writeAll dset a = do
     lift $ unsafeWriteAll p_err dset (typeH5 @(ElementOf a)) ptr
   either throwM pure res
 
--- | Read data from dataset using slab selection
+-- | Read data from dataset using slab selection. For example:
+--
+-- > readSlab dset (100::Int) (30::Int)
+--
+-- will read 30 element at offset 100.
 readSlab
   :: forall a m. (ArrayLike a, MonadIO m, MonadMask m, HasCallStack)
   => Dataset    -- ^ Dataset to read from
@@ -111,12 +115,16 @@ readSlab d off sz = withDataspace d $ \spc_file -> do
           H5P_DEFAULT (castPtr ptr)
   either throwM pure res
 
--- | Write provided data at given offset.
+-- | Write provided data at given offset. For example
+--
+-- > writeSlab dset (100::Int) [1 .. 10::Int]
+--
+-- will write 10 elements at offset 100.
 writeSlab
   :: forall a m. (ArrayLike a, MonadIO m, MonadThrow m, HasCallStack)
-  => Dataset
+  => Dataset    -- ^ Dataset to work on
   -> ExtentOf a -- ^ Offset into array
-  -> a
+  -> a          -- ^ Value to write
   -> m ()
 writeSlab dset off a = do
   res <- liftIO $ basicWriteToSlab a $ \ptr -> propagateEither $ do
@@ -130,25 +138,30 @@ writeSlab dset off a = do
           (getHID spc_mem) (getHID spc_file) H5P_DEFAULT ptr
   either throwM pure res
 
+
 ----------------------------------------------------------------
 -- Type classes for reading/writing
 ----------------------------------------------------------------
 
 -- | Data types which directly represent HDF5 N-dimensional arrays.
---   Usually operations are not zero-copy. Reading usually needs to
---   allocate buffer first, read from HDF file into it and reconstruct
---   haskell value from it. Similarly writing needs to create buffer
---   fill and then pass to HDF.
+--   Usually operations are not zero-copy: library first needs to read
+--   data into array and then parse it into haskell data. Writing
+--   works in reverse order. Notable exception is 'VecHDF5' since it
+--   uses same representation as `HDF5` library.
 class (Element (ElementOf a), IsExtent (ExtentOf a)) => ArrayLike a where
+  -- | Type of array element.
   type ElementOf a
+  -- | Size of array. It's isomorphic to some product of `Word64`.
   type ExtentOf  a
-  -- | Primitive for writing of HDF5 arrays (and scalars)
+  -- | Primitive for writing of HDF5 arrays (and scalars). Use
+  -- 'writeSlab' instead.
   basicWriteToSlab
     :: a                           -- ^ Value to pass
     -> (Ptr (ElementOf a) -> IO e) -- ^ Callback consuming buffer
     -> IO e
   -- | Primitive for reading HDF5 arrays. Note it's written in this
-  --   way in order to give control over pointer allocation to instances.
+  --   way in order to give control over pointer allocation to
+  --   instances. Use 'readSlab' instead.
   basicReadFromSlab
     :: ExtentOf a
        -- ^ Size of an array
@@ -162,10 +175,12 @@ class (Element (ElementOf a), IsExtent (ExtentOf a)) => ArrayLike a where
 
 
 -- | Data type which could be serialized as single HDF5 dataset.
---   Instance can do anything they like as long instance
---   roundtrips. Notable it allows use of dataset attributes.
+--   Main difference from 'ArrayLike' is that it could use attributes.
+--   Only law that instance should uphold is roundtripping.
 class SerializeDSet a where
+  -- | Primitive. Use 'readDatasetAt' instead.
   basicReadDSet :: Dataset -> IO a
+  -- | Primitive. Use 'writeDatasetAt' instead.
   basicWriteDSet
     :: a
     -> (forall ext. IsDataspace ext
