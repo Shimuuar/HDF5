@@ -1,8 +1,10 @@
 {-|
-High level API for working with HDF5 files. HDF5 stands for
-Hierarchical Data Format v5 and geared for working with large scale
-array data. C has very large API surface and not everything is
-supported.
+
+This library provides high level API for working with HDF5 files. HDF5
+stands for [Hierarchical Data Format
+v5](https://www.hdfgroup.org/solutions/hdf5/) and geared for working
+with large scale array data. API leans very heavily into type classes.
+
 
 = Overview
 
@@ -22,18 +24,20 @@ scalars or small arrays.
 HDF5 define number of entities with lifetimes that should be managed
 by programmer:
 
-- 'File' — handle to HDF5 file.
+- 'File' — handle to HDF5 file. It also could be used as root group.
 
-- 'Group' — handle to group in some file. Note that in places which
+- 'Group' — handle to group (directory like). Note that in places which
   expect group @File@ represents root directory of a file. (See 'IsDirectory')
 
 - 'Dataset' — handle to dataset in the file. It could be used to both
   read from and write to dataset.
 
-- 'Attribute' — named values which could be attached to group or dataset.
+- 'Attribute' — named values which could be attached to group or
+  dataset. API for working with them is defined in "HDF5.HL.Attribute" module.
 
 - 'Dataspace' — it encodes dimensions of dataset. Usually one doesn't
-   to deal with it directly.
+   need to deal with it directly and API uses haskell values for size
+   of array. See 'IsExtent' and 'IsDataspace' for details.
 
 All of them could be closed in the same way by calling
 'close'. Functions that open\/create such entities have bracket-like
@@ -42,10 +46,14 @@ companion named @with...@
 
 == Reading/writing of datasets
 
-Datasets are arrays and each of them has size described by
-`Dataspaces` and element type (which could be quite complicated)
-described by `Type`. All operations on datasets are heavily based on
-type classes.
+Datasets are dense N-dimensional arrays of some possibly complicated
+type described by 'Type'. They could be stored as single contiguous
+chunk or as set of chunks managed by library. Compression is also
+supported. All these properties (see 'Property') are specified at the
+time of dataset creation and completely transparent for
+reading\/writing API.
+
+Following type classes are used for IO:
 
 - `ArrayLike` is for types which could be directly mapped to arrays
   and scalars (0-dimensional arrays) and is used for datasets and
@@ -86,35 +94,32 @@ module HDF5.HL
   , withOpenDataset
   , withCreateEmptyDataset
   , setDatasetExtent
+    -- ** Dataset information
+  , getType
+  , getDataspace
+  , readDataspace
     -- ** Reading & writing of arrays
-  , ArrayLike(..)
   , writeSlab
   , readSlab
   , writeAll
   , readAll
   , writeAllAt
   , readAllAt
+  , ArrayLike(..)
     -- ** Reading using 'SerializeDSet'
-  , SerializeDSet(..)
   , readDatasetAt
   , writeDatasetAt
+  , SerializeDSet(..)
     -- **  Deriving via
   , SerializeAsScalar(..)
   , SerializeAsArray(..)
     -- * Dataspace information
     -- $dataspace
-  , Dataspace
-  , pattern UNLIMITED
   , IsExtent(..)
   , IsDataspace(..)
+  , pattern UNLIMITED
   , Extent(..)
   , Growable(..)
-    -- * Attributes
-  , Attribute
-  , openAttrMay
-  , withAttrMay
-  , readAttrMay
-  , writeAttr
     -- * Data types
     -- $type_hdf
   , Type
@@ -129,8 +134,7 @@ module HDF5.HL
     -- * Type classes
   , IsObject
   , IsDirectory
-  , HasData(..)
-  , getType
+  , HasData
   , HasAttrs
   , Closable
   , close
@@ -162,7 +166,6 @@ import HDF5.HL.Unsafe.Enum
 import HDF5.HL.Dataspace
 import HDF5.HL.Unsafe.Property
 import HDF5.HL.Unsafe.Encoding
-import HDF5.HL.Attribute
 import HDF5.C
 import Prelude hiding (read,readIO)
 
@@ -180,16 +183,26 @@ import Prelude hiding (read,readIO)
 close :: (Closable a, MonadIO m, HasCallStack) => a -> m ()
 close = liftIO . basicClose
 
+-- | Read type information for dataset or attribute
 getType :: (HasData a, MonadIO m, HasCallStack) => a -> m Type
 getType = liftIO . getTypeIO
+
+-- | Decode dataspace as haskell value
+readDataspace
+  :: (HasData a, IsDataspace ext, MonadIO m, MonadThrow m, HasCallStack)
+  => a -> m ext
+readDataspace dset = do
+  dspace <- getDataspace dset
+  either throwM pure =<< runParseFromDataspace dspace
+
+
 
 ----------------------------------------------------------------
 -- File API
 ----------------------------------------------------------------
 
--- | Open HDF5 file. This function will throw exception when file
---   doesn't exists even if it's open for writing. Use 'createFile' to
---   create new file. Returned handle must be closed using 'close'.
+-- | Open HDF5 file. Use 'createFile' to create new file. Returned
+--   handle must be closed using 'close'.
 openFile :: (MonadIO m, MonadThrow m, HasCallStack) => FilePath -> OpenMode -> m File
 openFile path = \case
   OpenRO     -> native h5f_ACC_RDONLY >>= either throwM pure
@@ -377,13 +390,18 @@ openDataset dir path = propagateError $ do
     $ h5d_open2 (getHID dir) c_path H5P_DEFAULT
 
 -- | Create new dataset at given location without writing any data to
---   it. Returned 'Dataset' must be closed by call to 'close'.
+--   it. This is standard way of creating dataset when data will be
+--   written incrementally. Otherwise 'writeAllAt' or 'writeDatasetAt'
+--   could be more convenient. It possible to change dataset extent
+--   (size) after creation using 'setDatasetExtent' if it uses chunked
+--   layout. See 'propDatasetChunking' for details. Returned 'Dataset'
+--   must be closed by call to 'close'.
 createEmptyDataset
   :: (MonadIO m, MonadThrow m, IsDirectory dir, IsDataspace ext, HasCallStack)
   => dir                -- ^ Location
   -> FilePath           -- ^ Path relative to location
   -> Type               -- ^ Element type
-  -> ext                -- ^ Extent of dataset
+  -> ext                -- ^ Extent of dataset. See 'IsDataspace' for details.
   -> [Property Dataset] -- ^ Dataset creation properties
   -> m Dataset
 createEmptyDataset dir path ty ext props = propagateError $ do
@@ -405,14 +423,15 @@ createEmptyDataset dir path ty ext props = propagateError $ do
 --   exception.
 withOpenDataset
   :: (MonadMask m, MonadIO m, IsDirectory dir, HasCallStack)
-  => dir      -- ^ Root
-  -> FilePath -- ^ Path relative to root
+  => dir      -- ^ Location
+  -> FilePath -- ^ Path relative to location
   -> (Dataset -> m a)
   -> m a
 withOpenDataset dir path = bracket (openDataset dir path) close
 
--- | Create new dataset at given location. Returned 'Dataset' must be
---   closed by call to 'close'.
+-- | Create new dataset using 'createEmptyDataset'. Dataset will be
+--   closed when continuation finish execution normally or with an
+--   exception.
 withCreateEmptyDataset
   :: (MonadIO m, MonadMask m, IsDirectory dir, IsDataspace ext, HasCallStack)
   => dir       -- ^ Location
@@ -450,7 +469,7 @@ writeAllAt dir path prop a
 readDatasetAt
   :: (SerializeDSet a, IsDirectory dir, MonadIO m, HasCallStack)
   => dir      -- ^ Location in HDF5 file
-  -> FilePath -- ^ Dataset name
+  -> FilePath -- ^ Path to dataset
   -> m a
 readDatasetAt dir path
   = liftIO
@@ -460,7 +479,7 @@ readDatasetAt dir path
 writeDatasetAt
   :: forall a dir m. (SerializeDSet a, IsDirectory dir, MonadIO m, HasCallStack)
   => dir      -- ^ Location in HDF5 file
-  -> FilePath -- ^ Name of dataset to create
+  -> FilePath -- ^ Path to dataset to create
   -> a        -- ^ Value to write to HDF5
   -> m ()
 writeDatasetAt dir path a

@@ -52,13 +52,13 @@ Library
         HDF5.HL.Types
         HDF5.HL.Vector
         --
-        HDF5.HL.Unsafe.Encoding
-        HDF5.HL.Unsafe.Enum
         HDF5.HL.Unsafe.Error
         HDF5.HL.Unsafe.Property
         HDF5.HL.Unsafe.Types
         HDF5.HL.Unsafe.Wrappers
-
+  Other-modules:
+        HDF5.HL.Unsafe.Encoding
+        HDF5.HL.Unsafe.Enum
 
 Test-suite HDF5-hl-tests
   type:             exitcode-stdio-1.0

@@ -34,7 +34,8 @@ class HDF5Param a where
 -- | Mode for opening existing files
 data OpenMode
   = OpenRO     -- ^ Open file in read-only mode.
-  | OpenRW     -- ^ Open file in read-write mode.
+  | OpenRW     -- ^ Open file in read-write mode. Throws exception if
+               --   file doesn't exists.
   | OpenAppend -- ^ Open file in read-write mode or create it if it doesn't exists.
   deriving stock (Show, Eq)
 

@@ -113,7 +113,8 @@ newtype Dataset = Dataset HID
   deriving stock (Show,Eq,Ord)
   deriving newtype IsObject
 
--- | Handle for attribute attached to file, group, directory.
+-- | Handle for attribute attached to file, group, dataset. Attribute
+--   is named value: scalar or small array.
 newtype Attribute = Attribute HID
   deriving stock (Show,Eq,Ord)
   deriving newtype IsObject
