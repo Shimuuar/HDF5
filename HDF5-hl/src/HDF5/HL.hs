@@ -130,7 +130,7 @@ module HDF5.HL
     -- * Type classes
   , IsObject
   , IsDirectory
-  , HasData(..)
+  , HasData
   , getType
   , HasAttrs
   , Closable
