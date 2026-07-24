@@ -58,9 +58,12 @@ type H5Reader a = forall dir. (HasCallStack, H5.IsDirectory dir) => dir -> FileP
 --   parameter relative to @dir@ (could be HDF5 file or group inside it).
 type H5Writer a = forall dir. (HasCallStack, H5.IsDirectory dir) => dir -> FilePath -> a -> IO ()
 
--- | Type class for value that could be serialized into HDF5 file.
+-- | Type class for values that could be serialized as some collection
+--   of HDF5 datasets in possibly arbitrary tree.
 class H5Serialize a where
+  -- | Read value from given path.
   h5Read  :: H5Reader a
+  -- | Write value at given path.
   h5Write :: H5Writer a
 
 -- | Lifted variant of 'H5Serialize'.
