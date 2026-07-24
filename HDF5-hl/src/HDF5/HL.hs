@@ -32,7 +32,8 @@ by programmer:
 - 'Dataset' — handle to dataset in the file. It could be used to both
   read from and write to dataset.
 
-- 'Attribute' — named values which could be attached to group or dataset.
+- 'Attribute' — named values which could be attached to group or
+  dataset. API for working with them is defined in "HDF5.HL.Attribute" module.
 
 - 'Dataspace' — it encodes dimensions of dataset. Usually one doesn't
    need to deal with it directly and API uses haskell values for size
@@ -115,12 +116,6 @@ module HDF5.HL
   , pattern UNLIMITED
   , Extent(..)
   , Growable(..)
-    -- * Attributes
-  , Attribute
-  , openAttrMay
-  , withAttrMay
-  , readAttrMay
-  , writeAttr
     -- * Data types
     -- $type_hdf
   , Type
