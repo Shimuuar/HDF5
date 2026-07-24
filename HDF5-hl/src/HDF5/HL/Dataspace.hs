@@ -100,7 +100,8 @@ class IsDataspace a where
   -- | Encode pairs for 
   encodeDataspace :: Monoid m => a -> Maybe ((Word64 -> Word64 -> m) -> m)
   -- | Parser for dataset which could be used to decode from sequence
-  --   of Dims.
+  --   of Dims. For data types which don't store maximum extent it's
+  --   discarded.
   decodeDataspace :: Monad m => ParserDim m a
   -- | How null dataspace should be interpreted.
   decodeNullDataspace :: Maybe a

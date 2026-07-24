@@ -96,6 +96,8 @@ module HDF5.HL
   , setDatasetExtent
     -- ** Dataset information
   , getType
+  , getDataspace
+  , readDataspace
     -- ** Reading & writing of arrays
   , writeSlab
   , readSlab
@@ -164,7 +166,6 @@ import HDF5.HL.Unsafe.Enum
 import HDF5.HL.Dataspace
 import HDF5.HL.Unsafe.Property
 import HDF5.HL.Unsafe.Encoding
-import HDF5.HL.Attribute
 import HDF5.C
 import Prelude hiding (read,readIO)
 
@@ -185,6 +186,16 @@ close = liftIO . basicClose
 -- | Read type information for dataset or attribute
 getType :: (HasData a, MonadIO m, HasCallStack) => a -> m Type
 getType = liftIO . getTypeIO
+
+-- | Decode dataspace as haskell value
+readDataspace
+  :: (HasData a, IsDataspace ext, MonadIO m, MonadThrow m, HasCallStack)
+  => a -> m ext
+readDataspace dset = do
+  dspace <- getDataspace dset
+  either throwM pure =<< runParseFromDataspace dspace
+
+
 
 ----------------------------------------------------------------
 -- File API
