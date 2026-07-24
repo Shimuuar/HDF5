@@ -6,10 +6,6 @@
 -- All modules inside @HDF5.HL.Internal@ constitute internal API.
 -- It considered part of public API but its stability is of little
 -- concert and shouldn't be relied upon.
---
--- All operations of internal API are done in 'HIO' monad which is
--- just a wrapper over @IO@ and used to ensure that call to HDF5 are
--- protected by mutex.
 module HDF5.HL.Serialize
   ( -- * Array serialization
     ArrayLike(..)
