@@ -94,6 +94,8 @@ module HDF5.HL
   , withOpenDataset
   , withCreateEmptyDataset
   , setDatasetExtent
+    -- ** Dataset information
+  , getType
     -- ** Reading & writing of arrays
   , writeSlab
   , readSlab
@@ -131,7 +133,6 @@ module HDF5.HL
   , IsObject
   , IsDirectory
   , HasData
-  , getType
   , HasAttrs
   , Closable
   , close
@@ -181,6 +182,7 @@ import Prelude hiding (read,readIO)
 close :: (Closable a, MonadIO m, HasCallStack) => a -> m ()
 close = liftIO . basicClose
 
+-- | Read type information for dataset or attribute
 getType :: (HasData a, MonadIO m, HasCallStack) => a -> m Type
 getType = liftIO . getTypeIO
 
