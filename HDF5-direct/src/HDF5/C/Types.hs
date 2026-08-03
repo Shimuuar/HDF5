@@ -35,13 +35,17 @@ module HDF5.C.Types
   , pattern H5_ITER_N
     -- * IO wrapper
   , HIO
+  , HDF5IO(..)
+  , lockHDF5
   ) where
 
+import Control.Concurrent.MVar
 import Data.Int
 import Data.Word
 import Foreign.C
 import Foreign.Storable
 import Foreign.Ptr
+import System.IO.Unsafe
 import GHC.Generics (Generic)
 
 
@@ -82,9 +86,22 @@ pattern HOK      <- HErr ((>=0) -> True)
 type HSize  = Word64
 type HSSize = Int64
 
+
 -- | We use standard approach where last parameter of wrapper function
 --   is always pointer where we return error stack in case of error.
-type HIO a = Ptr HID -> IO a
+type HIO a = Ptr HID -> HDF5IO a
+
+-- | Wrapper for HDF5 function calls. They have to be protected by
+--   lock this wrapper is used to check for that
+newtype HDF5IO a = HDF5IO { unsafeHDF5 :: IO a }
+
+lock :: MVar ()
+lock = unsafePerformIO $ newMVar ()
+{-# NOINLINE lock #-}
+
+-- | Run HDF5 function call under protected by global mutex
+lockHDF5 :: HDF5IO a -> IO a
+lockHDF5 (HDF5IO io) = withMVar lock $ \_ -> io
 
 
 ----------------------------------------------------------------

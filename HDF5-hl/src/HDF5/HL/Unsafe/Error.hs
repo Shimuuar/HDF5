@@ -111,13 +111,15 @@ decodeError p_err msg = evalContT $ do
   hid_err  <- lift  $ peek p_err
   v_stack  <- lift  $ newIORef []
   buf      <- ContT $ allocaArray $ fromIntegral $ msg_size + 1
+  -- NOTE: In callback we already hold global lock. We must not
+  --       reacquire it or else we'll deadlock.
   let step _ p _ = do
         m_maj    <- peek $ h5e_error_maj_num p
-        msgMajor <- do n     <- h5e_get_msg m_maj nullPtr buf msg_size p_err
+        msgMajor <- do n <- unsafeHDF5 $ h5e_get_msg m_maj nullPtr buf msg_size p_err
                        if | n > 0     -> peekCString buf
                           | otherwise -> pure ""
         m_min    <- peek $ h5e_error_min_num p
-        msgMinor <- do n     <- h5e_get_msg m_min nullPtr buf msg_size p_err
+        msgMinor <- do n <- unsafeHDF5 $ h5e_get_msg m_min nullPtr buf msg_size p_err
                        if | n > 0     -> peekCString buf
                           | otherwise -> pure ""
         let msgMajorN = decodeMajError m_maj
@@ -129,7 +131,7 @@ decodeError p_err msg = evalContT $ do
         modifyIORef' v_stack (Message{..}:)
         pure $ HErr 0
   callback <- ContT $ bracket (makeWalker step) freeHaskellFunPtr
-  res      <- lift  $ h5e_walk hid_err H5E_WALK_UPWARD callback nullPtr p_err
+  res      <- lift  $ lockHDF5 $ h5e_walk hid_err H5E_WALK_UPWARD callback nullPtr p_err
   case res of
     HOK      -> lift $ Error msg <$> readIORef v_stack
     HErrored -> pure $ Error (msg ++ internal) []
@@ -139,76 +141,76 @@ decodeError p_err msg = evalContT $ do
     msg_size = 255
     internal = "\nINTERNAL ERROR: Failed to decode HDF5 error"
 
-checkHID :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HID) -> IO HID
+checkHID :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HID) -> IO HID
 {-# INLINE checkHID #-}
 checkHID p_err msg action =
-  action p_err >>= \case
+  lockHDF5 (action p_err) >>= \case
     hid | hid < (HID 0) -> throwM =<< decodeError p_err msg
         | otherwise     -> pure hid
 
-checkHErr :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HErr) -> IO ()
+checkHErr :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HErr) -> IO ()
 {-# INLINE checkHErr #-}
 checkHErr p_err msg action =
-  action p_err >>= \case
+  lockHDF5 (action p_err) >>= \case
     HOK -> pure ()
     _   -> throwM =<< decodeError p_err msg
 
-checkCInt :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO CInt) -> IO CInt
+checkCInt :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO CInt) -> IO CInt
 {-# INLINE checkCInt #-}
 checkCInt p_err msg action =
-  action p_err >>= \case
+  lockHDF5 (action p_err) >>= \case
     n | n < 0     -> throwM =<< decodeError p_err msg
       | otherwise -> pure n 
 
-checkCLLong :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HSSize) -> IO HSSize
+checkCLLong :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HSSize) -> IO HSSize
 {-# INLINE checkCLLong #-}
 checkCLLong p_err msg action =
-  action p_err >>= \case
+  lockHDF5 (action p_err) >>= \case
     n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
       | otherwise -> pure n 
 
-checkHTri :: HasCallStack => Ptr HID -> String -> (Ptr HID -> IO HTri) -> IO Bool
+checkHTri :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HTri) -> IO Bool
 {-# INLINE checkHTri #-}
 checkHTri p_err msg action =
-  action p_err >>= \case
+  lockHDF5 (action p_err) >>= \case
     HFalse -> pure False
     HTrue  -> pure True
     HFail  -> throwM =<< decodeError p_err msg
 
 
 
-contCheckHID :: () => Ptr HID -> String -> (Ptr HID -> IO HID) -> ContT (Either Error r) IO HID
+contCheckHID :: () => Ptr HID -> String -> (Ptr HID -> HDF5IO HID) -> ContT (Either Error r) IO HID
 {-# INLINE contCheckHID #-}
 contCheckHID p_err msg action =
-  liftIO (action p_err) >>= \case
+  liftIO (lockHDF5 $ action p_err) >>= \case
     hid | hid < (HID 0) -> abort p_err msg
         | otherwise     -> pure hid
 
-contCheckHErr :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO HErr) -> m ()
+contCheckHErr :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO HErr) -> m ()
 {-# INLINE contCheckHErr #-}
 contCheckHErr p_err msg action =
-  liftIO (action p_err) >>= \case
+  liftIO (lockHDF5 $ action p_err) >>= \case
     HOK -> pure ()
     _   -> throwM =<< liftIO (decodeError p_err msg)
 
-contCheckCInt :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO CInt) -> m CInt
+contCheckCInt :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO CInt) -> m CInt
 {-# INLINE contCheckCInt #-}
 contCheckCInt p_err msg action =
-  liftIO (action p_err) >>= \case
+  liftIO (lockHDF5 $ action p_err) >>= \case
     n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
       | otherwise -> pure n
 
-contCheckCLLong :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO HSSize) -> m HSSize
+contCheckCLLong :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO HSSize) -> m HSSize
 {-# INLINE contCheckCLLong #-}
 contCheckCLLong p_err msg action =
-  liftIO (action p_err) >>= \case
+  liftIO (lockHDF5 $ action p_err) >>= \case
     n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
       | otherwise -> pure n
 
-contCheckHTri :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> IO HTri) -> m Bool
+contCheckHTri :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO HTri) -> m Bool
 {-# INLINE contCheckHTri #-}
 contCheckHTri p_err msg action =
-  liftIO (action p_err) >>= \case
+  liftIO (lockHDF5 $ action p_err) >>= \case
     HFalse -> pure False
     HTrue  -> pure True
     HFail  -> throwM =<< liftIO (decodeError p_err msg)

@@ -16,10 +16,6 @@
 #include "hdf5-hs.h"
 #include <hdf5_hl.h>
 
-// FIXME: right now we're using nonportable tricks
-#define __USE_GNU 1
-#include <pthread.h>
-
 #ifdef H5_HAVE_THREADSAFE
 // ----------------------------------------------------------------
 // Thread safe build
@@ -32,9 +28,6 @@ static __thread printing_disabled = 0;
             printing_disabled = 1;                \
         }                                         \
     } while(0)
-
-#define FINI do {} while(0)
-
 #else
 // ----------------------------------------------------------------
 // Thread unsafe build
@@ -43,19 +36,13 @@ static __thread printing_disabled = 0;
 // (and do it only once.
 static int printing_disabled = 0;
 
-// FIXME: this is non-portable intialization (linux only?)
-static pthread_mutex_t mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
-
 #define INI                                       \
     do {                                          \
-        pthread_mutex_lock(&mutex);               \
         if( 0 == printing_disabled ) {            \
             H5Eset_auto(H5E_DEFAULT, NULL, NULL); \
             printing_disabled = 1;                \
         }                                         \
     } while(0)
-
-#define FINI do { pthread_mutex_unlock(&mutex); } while(0)
 #endif
 // ----------------------------------------------------------------
 
@@ -64,7 +51,6 @@ static pthread_mutex_t mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
         INI;                                            \
         char* res = expr;                               \
         if( !res ) { *error = H5Eget_current_stack(); } \
-        FINI;                                           \
         return res;                                     \
     } while(0)
 #define CHECK(ty, expr)                                    \
@@ -72,7 +58,6 @@ static pthread_mutex_t mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
         INI;                                               \
         ty res = expr;                                     \
         if( res < 0 ) { *error = H5Eget_current_stack(); } \
-        FINI;                                              \
         return res;                                        \
     } while(0)
 
