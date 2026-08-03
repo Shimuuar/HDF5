@@ -39,6 +39,7 @@ static int printing_disabled = 0;
 
 #define INI                                       \
     do {                                          \
+        printf("calling %s\n", __FUNCTION__);     \
         if( 0 == printing_disabled ) {            \
             H5Eset_auto(H5E_DEFAULT, NULL, NULL); \
             printing_disabled = 1;                \
