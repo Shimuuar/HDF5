@@ -93,7 +93,7 @@ unsafeNewType
 unsafeNewType mkHID = alloca $ \p_err -> mask_ $ do
   token <- newIORef ()
   hid   <- mkHID
-  _     <- mkWeakIORef token (void $ h5t_close hid p_err)
+  _     <- mkWeakIORef token (void $ lockHDF5 $ h5t_close hid p_err)
   pure $ Type hid token
 
 -- | Use HID from data type. This function ensures that HID is kept
@@ -123,7 +123,7 @@ sizeOfH5 :: HasCallStack => Type -> Int
 sizeOfH5 ty = withFrozenCallStack $ unsafePerformIO $
   withType ty $ \tid -> do
     alloca $ \p_err -> do
-      sz <- h5t_get_size tid p_err
+      sz <- lockHDF5 $ h5t_get_size tid p_err
       case sz of
         0 -> throwM =<< decodeError p_err "Cannot compute size of data type"
         _ -> pure $! fromIntegral sz
@@ -195,7 +195,7 @@ matchArray :: Type -> Maybe (Type, [Int])
 matchArray ty = unsafePerformIO $ evalContT $ do
   p_err <- ContT $ alloca
   tid   <- ContT $ withType ty
-  liftIO (h5t_get_class tid p_err) >>= \case
+  liftIO (lockHDF5 $ h5t_get_class tid p_err) >>= \case
     H5T_NO_CLASS -> liftIO $ throwM =<< decodeError p_err "INTERNAL: Unable to get class for a type"
     H5T_ARRAY    -> do
         n     <- liftIO
@@ -226,12 +226,12 @@ makePackedRecord fields = unsafePerformIO $ withFrozenCallStack $ unsafeNewType 
     forM_ fields_sz $ \(nm,ty,off) -> do
       withCString nm $ \c_nm -> do
         withType ty $ \tid ->
-          h5t_insert ty_rec c_nm (fromIntegral off) tid p_err >>= \case
+          lockHDF5 (h5t_insert ty_rec c_nm (fromIntegral off) tid p_err) >>= \case
             -- We must call decodeError before h5t_close in order to
             -- recover stack. Also we closing ty_rec on best effort
             -- basis
             HErrored -> do err <- decodeError p_err "Unable to pack data types"
-                           _   <- h5t_close ty_rec p_err
+                           _   <- lockHDF5 $ h5t_close ty_rec p_err
                            throwM err
             _        -> pure ()
     pure ty_rec
@@ -252,7 +252,7 @@ makeEnumeration elems = unsafePerformIO $ withFrozenCallStack $ unsafeNewType $ 
   tid      <- ContT $ bracketOnError
     ( checkHID p_err "Cannot create enumeration type"
     $ h5t_enum_create base_tid )
-    (\tid -> void $ h5t_close tid p_err)
+    (\tid -> void $ lockHDF5 $ h5t_close tid p_err)
   lift $ do
     forM_ elems $ \(nm,a) -> do
       pokeH5 p_val a

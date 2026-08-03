@@ -343,7 +343,7 @@ runParseFromDataspace
   -> m (Either DataspaceParseError a)
 runParseFromDataspace (getHID -> hid) = propagateError $ do
   p_err <- ContT alloca
-  lift (h5s_get_simple_extent_type hid p_err) >>= \case
+  lift (lockHDF5 $ h5s_get_simple_extent_type hid p_err) >>= \case
     H5S_NULL   -> pure $ case decodeNullDataspace of
       Just d  -> Right d
       Nothing -> Left  UnexpectedNull
@@ -474,7 +474,7 @@ dataspaceRank
   -> m (Maybe Int)
 dataspaceRank (Dataspace hid) = propagateError $ do
   p_err <- ContT alloca
-  lift (h5s_get_simple_extent_type hid p_err) >>= \case
+  lift (lockHDF5 $ h5s_get_simple_extent_type hid p_err) >>= \case
       H5S_NULL   -> pure   Nothing
       H5S_SCALAR -> pure $ Just 0
       H5S_SIMPLE -> do
