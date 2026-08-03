@@ -3,3 +3,4 @@ dist-newstyle
 .ghc.environment
 .stack-work
 TAGS
+conf.nix
