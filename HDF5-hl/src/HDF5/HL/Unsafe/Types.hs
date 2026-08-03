@@ -90,10 +90,10 @@ data Type
 unsafeNewType
   :: IO HID -- ^ IO action which generates /fresh/ HID for type
   -> IO Type
-unsafeNewType mkHID = alloca $ \p_err -> mask_ $ do
+unsafeNewType mkHID = do -- alloca $ \p_err -> mask_ $ do
   token <- newIORef ()
   hid   <- mkHID
-  _     <- mkWeakIORef token (void $ lockHDF5 $ h5t_close hid p_err)
+  -- _     <- mkWeakIORef token (void $ lockHDF5 $ h5t_close hid p_err)
   pure $ Type hid token
 
 -- | Use HID from data type. This function ensures that HID is kept
