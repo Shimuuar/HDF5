@@ -101,7 +101,7 @@ lock = unsafePerformIO $ newMVar ()
 
 -- | Run HDF5 function call under protected by global mutex
 lockHDF5 :: HDF5IO a -> IO a
-lockHDF5 (HDF5IO io) = withMVar lock $ \_ -> io
+lockHDF5 (HDF5IO io) = io -- withMVar lock $ \_ -> io
 
 
 ----------------------------------------------------------------
