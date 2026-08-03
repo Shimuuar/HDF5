@@ -52,14 +52,14 @@ static int printing_disabled = 0;
     do {                                                \
         INI;                                            \
         char* res = expr;                               \
-        if( !res ) { *error = H5Eget_current_stack(); } \
+        if( !res ) { *error = H5Eget_current_stack(); printf("Call errored\n"); } \
         return res;                                     \
     } while(0)
 #define CHECK(ty, expr)                                    \
     do {                                                   \
         INI;                                               \
         ty res = expr;                                     \
-        if( res < 0 ) { *error = H5Eget_current_stack(); } \
+        if( res < 0 ) { *error = H5Eget_current_stack(); printf("Call errored\n"); } \
         return res;                                        \
     } while(0)
 
