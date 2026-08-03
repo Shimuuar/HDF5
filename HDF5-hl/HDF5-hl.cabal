@@ -63,7 +63,7 @@ Library
 Test-suite HDF5-hl-tests
   type:             exitcode-stdio-1.0
   Default-Language: GHC2021
-  ghc-options:      -Wall
+  ghc-options:      -Wall -threaded
   Build-Depends:    base
                   , HDF5-hl
                     --
