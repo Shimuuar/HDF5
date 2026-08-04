@@ -51,6 +51,7 @@ Library
         HDF5.HL.SerializeH5
         HDF5.HL.Types
         HDF5.HL.Vector
+        HDF5.HL.Monad
         --
         HDF5.HL.Unsafe.Error
         HDF5.HL.Unsafe.Property
@@ -59,6 +60,7 @@ Library
   Other-modules:
         HDF5.HL.Unsafe.Encoding
         HDF5.HL.Unsafe.Enum
+        HDF5.HL.Unsafe.ErrorTy
 
 Test-suite HDF5-hl-tests
   type:             exitcode-stdio-1.0
