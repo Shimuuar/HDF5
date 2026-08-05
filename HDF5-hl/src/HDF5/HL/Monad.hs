@@ -1,8 +1,9 @@
 -- |
 module HDF5.HL.Monad
-  ( Hdf5M
+  ( Hdf5M(..)
   , runHdf5M
   , scopeHdfFinalizers
+  , askPErr
   ) where
 
 import Control.Monad.Catch
@@ -47,3 +48,6 @@ scopeHdfFinalizers (Hdf5M m)
   $ \cnt -> runContT (m ptr) (pure . pure) >>= \case
               Left  e -> pure $ Left e
               Right a -> cnt a
+
+askPErr :: Hdf5M (Ptr HID)
+askPErr = Hdf5M $ \p_err -> pure p_err

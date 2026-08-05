@@ -43,13 +43,11 @@ import GHC.Generics (Generic)
 
 import HDF5.C
 import HDF5.HL.Unsafe.ErrorTy
-
+import HDF5.HL.Monad
 
 ----------------------------------------------------------------
 -- Data types
 ----------------------------------------------------------------
-
-
 
 -- | Error during conversion of dataspace's size to haskell data type.
 data DataspaceParseError
@@ -144,46 +142,51 @@ checkHTri p_err msg action =
 
 
 
-contCheckHID :: () => Ptr HID -> String -> (Ptr HID -> HDF5IO HID) -> ContT (Either Error r) IO HID
+contCheckHID :: String -> (Ptr HID -> HDF5IO HID) -> Hdf5M HID
 {-# INLINE contCheckHID #-}
-contCheckHID p_err msg action =
+contCheckHID msg action = do
+  p_err <- askPErr
   liftIO (lockHDF5 $ action p_err) >>= \case
-    hid | hid < (HID 0) -> abort p_err msg
+    hid | hid < (HID 0) -> abort msg
         | otherwise     -> pure hid
 
-contCheckHErr :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO HErr) -> m ()
+contCheckHErr :: String -> (Ptr HID -> HDF5IO HErr) -> Hdf5M ()
 {-# INLINE contCheckHErr #-}
-contCheckHErr p_err msg action =
+contCheckHErr msg action = do
+  p_err <- askPErr
   liftIO (lockHDF5 $ action p_err) >>= \case
     HOK -> pure ()
-    _   -> throwM =<< liftIO (decodeError p_err msg)
+    _   -> abort msg
 
-contCheckCInt :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO CInt) -> m CInt
+contCheckCInt :: String -> (Ptr HID -> HDF5IO CInt) -> Hdf5M CInt
 {-# INLINE contCheckCInt #-}
-contCheckCInt p_err msg action =
+contCheckCInt msg action = do
+  p_err <- askPErr
   liftIO (lockHDF5 $ action p_err) >>= \case
-    n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
+    n | n < 0     -> abort msg
       | otherwise -> pure n
 
-contCheckCLLong :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO HSSize) -> m HSSize
+contCheckCLLong :: String -> (Ptr HID -> HDF5IO HSSize) -> Hdf5M HSSize
 {-# INLINE contCheckCLLong #-}
-contCheckCLLong p_err msg action =
+contCheckCLLong msg action = do
+  p_err <- askPErr
   liftIO (lockHDF5 $ action p_err) >>= \case
-    n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
+    n | n < 0     -> abort msg
       | otherwise -> pure n
 
-contCheckHTri :: (MonadIO m, MonadThrow m) => Ptr HID -> String -> (Ptr HID -> HDF5IO HTri) -> m Bool
+contCheckHTri :: String -> (Ptr HID -> HDF5IO HTri) -> Hdf5M Bool
 {-# INLINE contCheckHTri #-}
-contCheckHTri p_err msg action =
+contCheckHTri msg action = do
+  p_err <- askPErr
   liftIO (lockHDF5 $ action p_err) >>= \case
     HFalse -> pure False
     HTrue  -> pure True
-    HFail  -> throwM =<< liftIO (decodeError p_err msg)
+    HFail  -> abort msg
 
-
-abort :: Ptr HID -> String -> ContT (Either Error r) IO a
-abort p_err msg = do e <- liftIO (decodeError p_err msg)
-                     ContT $ \_ -> pure (Left e)
+abort :: String -> Hdf5M a
+abort msg = Hdf5M $ \p_err -> do
+  e <- liftIO (decodeError p_err msg)
+  ContT $ \_ -> pure (Left e)
 
 propagateError :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m a
 propagateError action = withFrozenCallStack $ do
