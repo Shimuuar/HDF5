@@ -70,6 +70,7 @@ import GHC.ForeignPtr  (mallocPlainForeignPtrAlignedBytes)
 import GHC.IO          (IO(..))
 
 import HDF5.HL.Unsafe.Error
+import HDF5.HL.Monad
 import HDF5.C
 
 ----------------------------------------------------------------
@@ -105,15 +106,14 @@ withType (Type hid token) fun = IO $ \s ->
     IO action# -> keepAlive# token s action#
 
 instance Show Type where
-  show ty = unsafePerformIO $ propagateError $ do
-    p_err <- ContT $ alloca
-    tid   <- ContT $ withType ty
-    p_sz  <- ContT $ alloca
-    _     <- contCheckHErr p_err "Can't show type"
+  show ty = unsafePerformIO $ runHdf5M $ do
+    tid   <- liftBracket $ withType ty
+    p_sz  <- liftBracket $ alloca
+    _     <- contCheckHErr "Can't show type"
            $ h5lt_dtype_to_text tid nullPtr h5lt_DDL p_sz
-    sz    <- lift  $ peek p_sz
-    p_str <- ContT $ allocaArray0 $ fromIntegral sz
-    contCheckHErr p_err "Can't show type"
+    sz    <- liftIO $ peek p_sz
+    p_str <- liftBracket $ allocaArray0 $ fromIntegral sz
+    contCheckHErr "Can't show type"
       $ h5lt_dtype_to_text tid p_str h5lt_DDL p_sz
     liftIO $ peekCString p_str
 
@@ -181,37 +181,34 @@ pattern Array ty dim <- (matchArray -> Just (ty, dim))
     Array ty dim = makeArray ty dim
 
 makeArray :: Type -> [Int] -> Type
-makeArray ty dim = unsafePerformIO $ propagateError $ do
-  tid   <- ContT $ withType ty
-  p_dim <- ContT $ withArray (fromIntegral <$> dim)
-  p_err <- ContT $ alloca
-  liftIO $ unsafeNewType
-         $ checkHID p_err "Cannot create array type"
+makeArray ty dim = unsafePerformIO $ runHdf5M $ do
+  tid   <- liftBracket $ withType ty
+  p_dim <- liftBracket $ withArray (fromIntegral <$> dim)
+  tid_a <- contCheckHID "Cannot create array type"
          $ h5t_array_create tid n p_dim
+  liftIO $ unsafeNewType $ pure tid_a -- FIXME: Anyay it's wrong
   where
     n = fromIntegral $ length dim
 
 matchArray :: Type -> Maybe (Type, [Int])
-matchArray ty = unsafePerformIO $ evalContT $ do
-  p_err <- ContT $ alloca
-  tid   <- ContT $ withType ty
+matchArray ty = unsafePerformIO $ runHdf5M $ do
+  tid   <- liftBracket $ withType ty
+  p_err <- askPErr
+  -- FIXME: Another error handler
   liftIO (lockHDF5 $ h5t_get_class tid p_err) >>= \case
-    H5T_NO_CLASS -> liftIO $ throwM =<< decodeError p_err "INTERNAL: Unable to get class for a type"
+    H5T_NO_CLASS -> abort "INTERNAL: Unable to get class for a type"
     H5T_ARRAY    -> do
-        n     <- liftIO
-               $ fmap fromIntegral
-               $ checkCInt p_err "INTERNAL: Unable to get number of array dimensions"
+        n     <- fmap fromIntegral
+               $ contCheckCInt "INTERNAL: Unable to get number of array dimensions"
                $ h5t_get_array_ndims tid
-        buf   <- ContT $ allocaArray n
-        _     <- liftIO
-               $ checkCInt p_err "INTERNAL: Unable to get array's dimensions"
+        buf   <- liftBracket $ allocaArray n
+        _     <- contCheckCInt "INTERNAL: Unable to get array's dimensions"
                $ h5t_get_array_dims tid buf
-        super <- liftIO
-               $ unsafeNewType
-               $ checkHID p_err "INTERNAL: Cannot get supertype"
+        super <- contCheckHID "INTERNAL: Cannot get supertype"
                $ h5t_get_super tid
+        super' <- liftIO $ unsafeNewType $ pure super
         dims  <- liftIO $ peekArray n buf
-        pure $ Just (super, fromIntegral <$> dims)
+        pure $ Just (super', fromIntegral <$> dims)
     _ -> pure Nothing
 
 

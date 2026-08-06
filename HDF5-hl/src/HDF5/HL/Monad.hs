@@ -2,10 +2,14 @@
 module HDF5.HL.Monad
   ( Hdf5M(..)
   , runHdf5M
+  , runLiftHdf5M
+  , runHdf5MEither
   , scopeHdfFinalizers
   , askPErr
+  , liftBracket
   ) where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Trans.Cont
 import Control.Monad.IO.Class
@@ -19,8 +23,14 @@ import HDF5.HL.Unsafe.ErrorTy
 newtype Hdf5M a = Hdf5M (forall r. Ptr HID -> ContT (Either Error r) IO a)
   deriving stock Functor
 
-runHdf5M :: Hdf5M a -> IO (Either Error a)
-runHdf5M (Hdf5M action) = alloca $ \ptr -> runContT (action ptr) (pure . Right)
+runHdf5M :: Hdf5M a -> IO a
+runHdf5M = either throwM pure <=< runHdf5MEither
+
+runLiftHdf5M :: (MonadIO m, MonadThrow m) => Hdf5M a -> m a
+runLiftHdf5M = either throwM pure <=< liftIO . runHdf5MEither
+
+runHdf5MEither :: Hdf5M a -> IO (Either Error a)
+runHdf5MEither (Hdf5M action) = alloca $ \ptr -> runContT (action ptr) (pure . Right)
 
 instance Applicative Hdf5M where
   pure a = Hdf5M (const (pure a))
@@ -51,3 +61,6 @@ scopeHdfFinalizers (Hdf5M m)
 
 askPErr :: Hdf5M (Ptr HID)
 askPErr = Hdf5M $ \p_err -> pure p_err
+
+liftBracket :: (forall r. (a -> IO r) -> IO r) -> Hdf5M a
+liftBracket cnt = Hdf5M $ \_ -> ContT cnt

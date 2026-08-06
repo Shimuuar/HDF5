@@ -32,6 +32,7 @@ import HDF5.C
 import HDF5.HL.Unsafe.Enum
 import HDF5.HL.Unsafe.Error
 import HDF5.HL.Unsafe.Types
+import HDF5.HL.Monad
 
 
 ----------------------------------------------------------------
@@ -159,14 +160,14 @@ instance HasData Dataset where
       fmap Dataspace
     $ checkHID p_err "Cannot read dataset's dataspace"
     $ h5d_get_space hid
-  unsafeReadAll p_err (Dataset hid) ty buf = propagateEither $ do
-    tid <- ContT $ withType ty
-    contCheckHErr p_err "Reading dataset data failed"
+  unsafeReadAll p_err (Dataset hid) ty buf = runHdf5MEither $ do
+    tid <- liftBracket $ withType ty
+    contCheckHErr "Reading dataset data failed"
       $ h5d_read hid tid
           h5s_ALL h5s_ALL H5P_DEFAULT (castPtr buf)
-  unsafeWriteAll p_err (Dataset hid) ty buf = propagateEither $ do
-    tid <- ContT $ withType ty
-    contCheckHErr p_err "Writing dataset data failed"
+  unsafeWriteAll p_err (Dataset hid) ty buf = runHdf5MEither $ do
+    tid <- liftBracket $ withType ty
+    contCheckHErr "Writing dataset data failed"
       $ h5d_write hid tid
           h5s_ALL h5s_ALL H5P_DEFAULT buf
 
@@ -183,13 +184,13 @@ instance HasData Attribute where
     $ fmap Dataspace
     $ checkHID p_err "Cannot get attribute's dataspace"
     $ h5a_get_space hid
-  unsafeReadAll p_err (Attribute hid) ty buf = propagateEither $ do
-    tid <- ContT $ withType ty
-    contCheckHErr p_err "Reading attribute data failed"
+  unsafeReadAll p_err (Attribute hid) ty buf = runHdf5MEither $ do
+    tid <- liftBracket $ withType ty
+    contCheckHErr "Reading attribute data failed"
       $ h5a_read hid tid (castPtr buf)
-  unsafeWriteAll p_err (Attribute hid) ty buf = propagateEither $ do
-    tid <- ContT $ withType ty
-    contCheckHErr p_err "Writing Attribute data failed"
+  unsafeWriteAll p_err (Attribute hid) ty buf = runHdf5MEither $ do
+    tid <- liftBracket $ withType ty
+    contCheckHErr "Writing Attribute data failed"
       $ h5a_write hid tid (castPtr buf)
 
 

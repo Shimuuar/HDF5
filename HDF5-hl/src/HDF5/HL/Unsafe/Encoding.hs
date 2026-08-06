@@ -8,6 +8,7 @@ module HDF5.HL.Unsafe.Encoding
 
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Cont
 import Data.Coerce
@@ -18,31 +19,30 @@ import Foreign.Storable
 
 import HDF5.C
 import HDF5.HL.Unsafe.Error
-
+import HDF5.HL.Monad
 
 
 -- | Encode rank and dimensions of an array.
 withEncodedExtent
   :: ((Word64 -> DSpaceWriter) -> DSpaceWriter)
-  -> ContT r IO (Int, Ptr HSize)
-withEncodedExtent encoder = do
-  let DSpaceWriter write = encoder putDimension
-  ptr  <- ContT $ allocaArray maxRank
-  rank <- lift  $ write ptr maxRank 0
-  pure (rank, ptr)
+  -> Hdf5M (Int, Ptr HSize)
+withEncodedExtent encoder = liftIO $ do
+  allocaArray maxRank $ \ptr -> do
+    rank <- write ptr maxRank 0
+    pure (rank, ptr)
+  where DSpaceWriter write = encoder putDimension
 
 -- | Encode rank, dimensions and maximum dimensions of an array
 withEncodedDataspace
   :: ((Word64 -> Word64 -> DSpaceWriter) -> DSpaceWriter)
-  -> ContT r IO (Int, Ptr HSize, Ptr HSize)
-withEncodedDataspace encoder = do
-  let DSpaceWriter write = encoder putDimension2
-  ptr  <- ContT $ allocaArray (maxRank * 2)
-  rank <- lift  $ write ptr maxRank 0
-  pure ( rank
-       , ptr
-       , ptr `plusPtr` (maxRank * sizeOf (undefined :: HSize)))
-
+  -> Hdf5M (Int, Ptr HSize, Ptr HSize)
+withEncodedDataspace encoder = liftIO $ do
+  allocaArray (maxRank * 2) $ \ptr -> do
+    rank <- write ptr maxRank 0
+    pure ( rank
+         , ptr
+         , ptr `plusPtr` (maxRank * sizeOf (undefined :: HSize)))
+  where DSpaceWriter write = encoder putDimension2
 
 
 ----------------------------------------------------------------

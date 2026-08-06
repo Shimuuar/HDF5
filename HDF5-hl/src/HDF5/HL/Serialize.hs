@@ -53,6 +53,7 @@ import HDF5.HL.Unsafe.Error
 import HDF5.HL.Dataspace
 import HDF5.HL.Unsafe.Property
 import HDF5.HL.Vector
+import HDF5.HL.Monad
 import HDF5.C
 import Prelude hiding (read,readIO)
 
@@ -100,12 +101,11 @@ readSlab
   -> ExtentOf a -- ^ Array size
   -> m a
 readSlab d off sz = withDataspace d $ \spc_file -> do
-  res <- liftIO $ basicReadFromSlab sz $ \ptr -> propagateEither $ do
-    p_err   <- ContT alloca
-    lift $ setSlabSelection spc_file off sz
-    spc_mem <- ContT $ withCreateDataspaceFromExtent sz
-    tid     <- ContT $ withType (typeH5 @(ElementOf a))
-    contCheckHErr p_err "Reading dataset data failed"
+  res <- liftIO $ basicReadFromSlab sz $ \ptr -> runHdf5MEither $ do
+    liftIO $ setSlabSelection spc_file off sz
+    spc_mem <- liftBracket $ withCreateDataspaceFromExtent sz
+    tid     <- liftBracket $ withType (typeH5 @(ElementOf a))
+    contCheckHErr "Reading dataset data failed"
       $ h5d_read (getHID d) tid
           (getHID spc_mem) (getHID spc_file)
           H5P_DEFAULT (castPtr ptr)
@@ -123,13 +123,12 @@ writeSlab
   -> a          -- ^ Value to write
   -> m ()
 writeSlab dset off a = do
-  res <- liftIO $ basicWriteToSlab a $ \ptr -> propagateEither $ do
-    p_err    <- ContT alloca
-    spc_file <- lift  $ getDataspaceIO dset
-    lift $ setSlabSelection spc_file off (getExtent a)
-    spc_mem  <- ContT $ withCreateDataspaceFromExtent $ getExtent a
-    tid      <- ContT $ withType (typeH5 @(ElementOf a))
-    contCheckHErr p_err "Writing dataset data failed"
+  res <- liftIO $ basicWriteToSlab a $ \ptr -> runHdf5MEither $ do
+    spc_file <- liftIO $ getDataspaceIO dset
+    liftIO $ setSlabSelection spc_file off (getExtent a)
+    spc_mem  <- liftBracket $ withCreateDataspaceFromExtent $ getExtent a
+    tid      <- liftBracket $ withType (typeH5 @(ElementOf a))
+    contCheckHErr "Writing dataset data failed"
       $ h5d_write (getHID dset) tid
           (getHID spc_mem) (getHID spc_file) H5P_DEFAULT ptr
   either throwM pure res

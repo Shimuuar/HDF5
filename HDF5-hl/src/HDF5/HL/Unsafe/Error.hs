@@ -22,8 +22,7 @@ module HDF5.HL.Unsafe.Error
   , contCheckHTri
   , contCheckCInt
   , contCheckCLLong
-  , propagateError
-  , propagateEither
+  , contUnchecked
   , abort
   ) where
 
@@ -183,19 +182,17 @@ contCheckHTri msg action = do
     HTrue  -> pure True
     HFail  -> abort msg
 
+contUnchecked :: (Ptr HID -> HDF5IO a) -> Hdf5M a
+{-# INLINE contUnchecked #-}
+contUnchecked action = do
+  p_err <- askPErr
+  liftIO (lockHDF5 $ action p_err)
+
+
 abort :: String -> Hdf5M a
 abort msg = Hdf5M $ \p_err -> do
   e <- liftIO (decodeError p_err msg)
   ContT $ \_ -> pure (Left e)
-
-propagateError :: (MonadIO m, MonadThrow m) => ContT (Either Error a) IO a -> m a
-propagateError action = withFrozenCallStack $ do
-  liftIO (runContT action (pure . Right)) >>= \case
-    Left  e -> throwM e
-    Right a -> pure a
-
-propagateEither :: (MonadIO m) => ContT (Either Error a) IO a -> m (Either Error a)
-propagateEither action = liftIO (runContT action (pure . Right))
 
 
 

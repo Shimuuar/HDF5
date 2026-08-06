@@ -166,6 +166,7 @@ import HDF5.HL.Unsafe.Enum
 import HDF5.HL.Dataspace
 import HDF5.HL.Unsafe.Property
 import HDF5.HL.Unsafe.Encoding
+import HDF5.HL.Monad
 import HDF5.C
 import Prelude hiding (read,readIO)
 
@@ -205,19 +206,18 @@ readDataspace dset = do
 --   handle must be closed using 'close'.
 openFile :: (MonadIO m, MonadThrow m, HasCallStack) => FilePath -> OpenMode -> m File
 openFile path = \case
-  OpenRO     -> native h5f_ACC_RDONLY >>= either throwM pure
-  OpenRW     -> native h5f_ACC_RDWR   >>= either throwM pure
-  OpenAppend -> native h5f_ACC_RDWR   >>= \case
+  OpenRO     -> either throwM pure =<< liftIO (native h5f_ACC_RDONLY)
+  OpenRW     -> either throwM pure =<< liftIO (native h5f_ACC_RDWR)
+  OpenAppend -> liftIO (native h5f_ACC_RDWR) >>= \case
     Right a -> pure a
     Left (Error _ (Message{msgMajorN=MAJ_FILE,msgMinorN=MIN_CANTOPENFILE}:_))
            -> createFile path CreateExcl
     Left e -> throwM e
   where
-    native mode = propagateEither $ do
-      p_err  <- ContT $ alloca
-      c_path <- ContT $ withCString path
+    native mode = runHdf5MEither $ do
+      c_path <- liftBracket $ withCString path
       fmap File
-        $ contCheckHID p_err ("Cannot open file " ++ path)
+        $ contCheckHID ("Cannot open file " ++ path)
         $ h5f_open c_path mode H5P_DEFAULT
 
 -- | Open file using 'openFile' and pass handle to continuation. It
@@ -232,11 +232,10 @@ withOpenFile path mode = bracket (openFile path mode) close
 --   open existing file for modification. Returned handle must be
 --   closed using 'close'.
 createFile :: (MonadIO m, MonadThrow m, HasCallStack) => FilePath -> CreateMode -> m File
-createFile path mode = propagateError $ do
-  p_err  <- ContT $ alloca
-  c_path <- ContT $ withCString path
+createFile path mode = runLiftHdf5M $ do
+  c_path <- liftBracket $ withCString path
   fmap File
-    $ contCheckHID p_err ("Cannot create file " ++ path)
+    $ contCheckHID ("Cannot create file " ++ path)
     $ h5f_create c_path (toCParam mode) H5P_DEFAULT H5P_DEFAULT
 
 -- | Create file using 'createFile' and pass handle to
@@ -257,11 +256,10 @@ openGroup
   => dir      -- ^ Location. Either 'File' or 'Group'
   -> FilePath -- ^ Name of group
   -> m Group
-openGroup dir path = propagateError $ do
-  p_err  <- ContT $ alloca
-  c_path <- ContT $ withCString path
+openGroup dir path = runLiftHdf5M $ do
+  c_path <- liftBracket $ withCString path
   fmap Group
-    $ contCheckHID p_err ("Cannot open group " ++ path)
+    $ contCheckHID ("Cannot open group " ++ path)
     $ h5g_open (getHID dir) c_path H5P_DEFAULT
 
 -- | @bracket@-style wrapper for 'openGroup'
@@ -279,11 +277,10 @@ createGroup
   => dir       -- ^ Location. Either 'File' or 'Group'
   -> FilePath  -- ^ Name of group
   -> m Group
-createGroup dir path = propagateError $ do
-  p_err  <- ContT $ alloca
-  c_path <- ContT $ withCString path
+createGroup dir path = runLiftHdf5M $ do
+  c_path <- liftBracket $ withCString path
   fmap Group
-    $ contCheckHID p_err ("Cannot create group " ++ path)
+    $ contCheckHID ("Cannot create group " ++ path)
     $ h5g_create (getHID dir) c_path H5P_DEFAULT H5P_DEFAULT H5P_DEFAULT
 
 -- | @bracket@-style wrapper for 'createGroup'
@@ -300,17 +297,16 @@ listGroup
   :: (IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir -- ^ Location to use
   -> m [FilePath]
-listGroup dir = propagateError$ do
-  p_err <- ContT $ alloca
-  p_idx <- ContT $ alloca
-  names <- lift  $ newIORef []
+listGroup dir = runLiftHdf5M $ do
+  p_idx <- liftBracket $ alloca
+  names <- liftIO      $ newIORef []
   let readNode _hid cname _p_node _p_userdata = do
         name <- peekCString cname
         modifyIORef' names (name:)
         pure $ HErr 0
-  callback <- ContT $ bracket (makeH5LIterate2 readNode) freeHaskellFunPtr
+  callback <- liftBracket $ bracket (makeH5LIterate2 readNode) freeHaskellFunPtr
   liftIO $ poke p_idx 0 -- We MUST set starting index
-  contCheckHErr p_err "Unable to iterate over group"
+  contCheckHErr "Unable to iterate over group"
     $ h5l_iterate (getHID dir) H5_INDEX_NAME H5_ITER_DEC p_idx callback nullPtr
   liftIO $ readIORef names
 
@@ -320,10 +316,9 @@ delete
   => dir      -- ^ Location to use
   -> FilePath -- ^ Name to delete
   -> m ()
-delete dir path = propagateError $ do
-  p_err  <- ContT $ alloca
-  c_name <- ContT $ withCString path
-  contCheckHErr p_err ("Unable to delete path: " ++ path)
+delete dir path = runLiftHdf5M $ do
+  c_name <- liftBracket $ withCString path
+  contCheckHErr ("Unable to delete path: " ++ path)
     $ h5l_delete (getHID dir) c_name H5P_DEFAULT
 
 -- | Check whether path in HDF5 file is valid.
@@ -343,10 +338,9 @@ pathIsValid
   -> FilePath -- ^ Path to check
   -> Bool     -- ^ @check@ Whether to check that object pointed to path exists.
   -> m Bool
-pathIsValid dir path check = propagateError $ do
-  p_err  <- ContT $ alloca
-  c_name <- ContT $ withCString path
-  contCheckHTri p_err "pathIsValid"
+pathIsValid dir path check = runLiftHdf5M $ do
+  c_name <- liftBracket $ withCString path
+  contCheckHTri "pathIsValid"
     $ h5lt_path_valid (getHID dir) c_name (if check then 1 else 0)
 
 
@@ -382,11 +376,10 @@ openDataset
   => dir      -- ^ Location
   -> FilePath -- ^ Path relative to location
   -> m Dataset
-openDataset dir path = propagateError $ do
-  p_err  <- ContT $ alloca
-  c_path <- ContT $ withCString path
+openDataset dir path = runLiftHdf5M $ do
+  c_path <- liftBracket $ withCString path
   fmap Dataset
-    $ contCheckHID p_err ("Cannot open dataset " ++ path)
+    $ contCheckHID ("Cannot open dataset " ++ path)
     $ h5d_open2 (getHID dir) c_path H5P_DEFAULT
 
 -- | Create new dataset at given location without writing any data to
@@ -404,14 +397,13 @@ createEmptyDataset
   -> ext                -- ^ Extent of dataset. See 'IsDataspace' for details.
   -> [Property Dataset] -- ^ Dataset creation properties
   -> m Dataset
-createEmptyDataset dir path ty ext props = propagateError $ do
-  p_err  <- ContT $ alloca
-  c_path <- ContT $ withCString path
-  space  <- ContT $ withCreateDataspaceFromDSpace ext
-  tid    <- ContT $ withType ty
-  plist  <- ContT $ withDatasetProps $ mconcat props
+createEmptyDataset dir path ty ext props = runLiftHdf5M $ do
+  c_path <- liftBracket $ withCString path
+  space  <- liftBracket $ withCreateDataspaceFromDSpace ext
+  tid    <- liftBracket $ withType ty
+  plist  <- liftBracket $ withDatasetProps $ mconcat props
   fmap Dataset
-    $ contCheckHID p_err ("Unable to create dataset")
+    $ contCheckHID ("Unable to create dataset")
     $ h5d_create (getHID dir) c_path tid (getHID space)
       H5P_DEFAULT
       (getHID plist)
@@ -497,15 +489,14 @@ writeDatasetAt dir path a
 --   * A chunked dataset with fixed dimensions if the new dimension
 --     sizes are less than the maximum sizes set with maxdims
 setDatasetExtent :: (HasCallStack, IsExtent dim, MonadIO m, MonadThrow m) => Dataset -> dim -> m ()
-setDatasetExtent dset dim = propagateError $ do
-  p_err         <- ContT $ alloca
+setDatasetExtent dset dim = runLiftHdf5M $ do
   (r_ext,p_ext) <- withEncodedExtent $ encodeExtent dim
-  spc    <- ContT $ withDataspace dset
-  r_dset <- contCheckCInt p_err "Cannot get rank of dataspace's extent"
+  spc    <- liftBracket $ withDataspace dset
+  r_dset <- contCheckCInt "Cannot get rank of dataspace's extent"
           $ h5s_get_simple_extent_ndims (getHID spc)
   when (fromIntegral r_ext /= r_dset) $ throwM $
     Error "Rank of dataset and rank of new extent do not match" []
-  contCheckHErr p_err "Failed to set new extent for a dataset"
+  contCheckHErr "Failed to set new extent for a dataset"
     $ h5d_set_extent (getHID dset) p_ext
 
 
