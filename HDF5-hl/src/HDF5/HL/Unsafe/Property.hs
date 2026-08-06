@@ -4,21 +4,16 @@ module HDF5.HL.Unsafe.Property
   ( -- * Property lists
     Property(..)
     -- * Dataset properties
-  , withDatasetProps
   , propDatasetLayout
   , propDatasetChunking
   , propDatasetDeflate
+    -- ** Create properties
+  , hdfDatasetProps
   ) where
 
 #if !MIN_VERSION_base(4,18,0)
 import Control.Applicative(liftA2)
 #endif
-import Control.Monad.Catch
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Cont
-import Foreign.Ptr
-import Foreign.Marshal
 import GHC.Stack
 
 import HDF5.C
@@ -52,16 +47,16 @@ instance Monoid (Property p) where
 -- Dataset
 ----------------------------------------------------------------
 
-withDatasetProps :: Property Dataset -> (PropertyHID Dataset -> IO a) -> IO a
--- FIXME: I have some 
-withDatasetProps prop action = case prop of  
-  NoProperty -> action $ PropertyHID H5P_DEFAULT
-  Property f -> runHdf5M $ do
+-- | Allocate property list. It will be automatically destroyed 
+hdfDatasetProps :: Property Dataset -> Hdf5M (PropertyHID Dataset)
+hdfDatasetProps prop = case prop of  
+  NoProperty -> pure $ PropertyHID H5P_DEFAULT
+  Property f -> do
+    -- FIXME: I need to call h5p_close here!
     p <- fmap PropertyHID
        $ contCheckHID "Unable to create property list"
        $ h5p_create H5P_DATASET_CREATE
-    f p
-    liftIO $ action p
+    p <$ f p
 
 
 -- | Set up dataset layout

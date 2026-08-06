@@ -401,7 +401,7 @@ createEmptyDataset dir path ty ext props = runLiftHdf5M $ do
   c_path <- liftBracket $ withCString path
   space  <- liftBracket $ withCreateDataspaceFromDSpace ext
   tid    <- liftBracket $ withType ty
-  plist  <- liftBracket $ withDatasetProps $ mconcat props
+  plist  <- hdfDatasetProps $ mconcat props
   fmap Dataset
     $ contCheckHID ("Unable to create dataset")
     $ h5d_create (getHID dir) c_path tid (getHID space)
