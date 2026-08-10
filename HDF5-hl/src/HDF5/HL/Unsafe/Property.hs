@@ -52,9 +52,7 @@ hdfDatasetProps :: Property Dataset -> Hdf5M (PropertyHID Dataset)
 hdfDatasetProps prop = case prop of  
   NoProperty -> pure $ PropertyHID H5P_DEFAULT
   Property f -> do
-    -- FIXME: I need to call h5p_close here!
-    p <- fmap PropertyHID
-       $ contCheckHID "Unable to create property list"
+    p <- boundCheckHID "Unable to create property list" PropertyHID
        $ h5p_create H5P_DATASET_CREATE
     p <$ f p
 

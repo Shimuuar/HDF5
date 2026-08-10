@@ -39,13 +39,6 @@ import HDF5.HL.Monad
 -- Type classes
 ----------------------------------------------------------------
 
--- | Most value (files, groups, datasets, etc.) should be closed
---   explicitly in order to avoid resource leaks. This is utility
---   class which allows to use same function to all of them.
-class Closable a where
-  basicClose :: HasCallStack => a -> IO ()
-
-
 -- | Some HDF5 object.
 class IsObject a where
   getHID        :: a -> HID

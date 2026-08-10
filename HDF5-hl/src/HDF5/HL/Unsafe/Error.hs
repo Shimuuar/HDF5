@@ -10,6 +10,7 @@ module HDF5.HL.Unsafe.Error
   , DataspaceParseError(..)
   , AttributeParseError(..)
     -- * API
+  , Closable(..)
   , decodeError
   , checkHID
   , checkHErr
@@ -18,6 +19,7 @@ module HDF5.HL.Unsafe.Error
   , checkCLLong
     -- ** Continuations
   , contCheckHID
+  , boundCheckHID
   , contCheckHErr
   , contCheckHTri
   , contCheckCInt
@@ -103,6 +105,18 @@ decodeError p_err msg = evalContT $ do
     msg_size = 255
     internal = "\nINTERNAL ERROR: Failed to decode HDF5 error"
 
+
+----------------------------------------------------------------
+-- Handling of errors
+----------------------------------------------------------------
+
+-- | Most value (files, groups, datasets, etc.) should be closed
+--   explicitly in order to avoid resource leaks. This is utility
+--   class which allows to use same function to all of them.
+class Closable a where
+  basicClose :: HasCallStack => a -> IO ()
+
+
 checkHID :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HID) -> IO HID
 {-# INLINE checkHID #-}
 checkHID p_err msg action =
@@ -148,6 +162,26 @@ contCheckHID msg action = do
   liftIO (lockHDF5 $ action p_err) >>= \case
     hid | hid < (HID 0) -> abort msg
         | otherwise     -> pure hid
+
+boundCheckHID :: Closable a => String -> (HID -> a) -> (Ptr HID -> HDF5IO HID) -> Hdf5M a
+{-# INLINE boundCheckHID #-}
+-- FIXME: That's quite an ugly blob! Concerns aren't separating neatly
+--        here.
+boundCheckHID msg mk action = Hdf5M $ \p_err -> ContT $ \cont -> bracket
+  (lockHDF5 (action p_err) >>= \case
+    hid | hid < (HID 0) -> pure $ Left msg
+        | otherwise     -> pure $ Right $ mk hid
+  )
+  (\case
+      Left{}  -> pure ()
+      Right a -> basicClose a
+  )
+  (\case
+      Left  msg -> Left <$> decodeError p_err msg
+      Right a   -> cont a
+  )
+
+
 
 contCheckHErr :: String -> (Ptr HID -> HDF5IO HErr) -> Hdf5M ()
 {-# INLINE contCheckHErr #-}
