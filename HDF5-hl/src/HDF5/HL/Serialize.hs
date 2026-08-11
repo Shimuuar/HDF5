@@ -103,7 +103,7 @@ readSlab
 readSlab d off sz = withDataspace d $ \spc_file -> do
   res <- liftIO $ basicReadFromSlab sz $ \ptr -> runHdf5MEither $ do
     liftIO $ setSlabSelection spc_file off sz
-    spc_mem <- liftBracket $ withCreateDataspaceFromExtent sz
+    spc_mem <- hdfCreateDataspaceFromExtent sz
     tid     <- liftBracket $ withType (typeH5 @(ElementOf a))
     contCheckHErr "Reading dataset data failed"
       $ h5d_read (getHID d) tid
@@ -126,7 +126,7 @@ writeSlab dset off a = do
   res <- liftIO $ basicWriteToSlab a $ \ptr -> runHdf5MEither $ do
     spc_file <- liftIO $ getDataspaceIO dset
     liftIO $ setSlabSelection spc_file off (getExtent a)
-    spc_mem  <- liftBracket $ withCreateDataspaceFromExtent $ getExtent a
+    spc_mem  <- hdfCreateDataspaceFromExtent $ getExtent a
     tid      <- liftBracket $ withType (typeH5 @(ElementOf a))
     contCheckHErr "Writing dataset data failed"
       $ h5d_write (getHID dset) tid

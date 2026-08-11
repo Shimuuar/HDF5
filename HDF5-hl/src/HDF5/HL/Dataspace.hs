@@ -11,10 +11,8 @@ module HDF5.HL.Dataspace
   , setSlabSelection
     -- ** Creation
   , getDataspace
-  , createDataspaceFromExtent
-  , createDataspaceFromDSpace
-  , withCreateDataspaceFromExtent
-  , withCreateDataspaceFromDSpace
+  , hdfCreateDataspaceFromExtent
+  , hdfCreateDataspaceFromDSpace
     -- * Encoding as haskell data type
   , IsExtent(..)
   , IsDataspace(..)
@@ -380,54 +378,31 @@ runParseFromDataspace (getHID -> hid) = runLiftHdf5M $ do
 -- Dataspace creation
 ----------------------------------------------------------------
 
--- | Create dataspace for a given extent. This only creates scalar or
+-- | Create dataspace for a given extent. This creates scalar or
 --   simple dataspaces with maximum size same as real size.
-createDataspaceFromExtent
-  :: (IsExtent dim, MonadIO m, MonadThrow m, HasCallStack)
-  => dim       -- ^ Extent of dataspace
-  -> m Dataspace
-createDataspaceFromExtent dim = runLiftHdf5M $ do
+hdfCreateDataspaceFromExtent
+  :: IsExtent dim
+  => dim     -- ^ Extent of dataspace
+  -> Hdf5M Dataspace
+hdfCreateDataspaceFromExtent dim = do
   (rank,ptr) <- withEncodedExtent $ encodeExtent dim
-  fmap Dataspace
-    $ contCheckHID "Unable to create simple dataspace"
+  boundCheckHID "Unable to create simple dataspace" Dataspace
     $ h5s_create_simple (fromIntegral rank) ptr nullPtr
-
 
 -- | Create dataspace for a given extent. This variant allow creation
 --   of all possible dataspaces.
-createDataspaceFromDSpace
-  :: (IsDataspace dim, MonadIO m, MonadThrow m, HasCallStack)
-  => dim       -- ^ Extent of dataspace
-  -> m Dataspace
-createDataspaceFromDSpace dspace = runLiftHdf5M $ do
-  case encodeDataspace dspace of
-    Nothing -> fmap Dataspace
-             $ contCheckHID "Unable to create dataspace with NULL extent"
+hdfCreateDataspaceFromDSpace
+  :: IsDataspace dim
+  => dim -- ^ Extent of dataspace
+  -> Hdf5M Dataspace
+hdfCreateDataspaceFromDSpace dim = do
+  case encodeDataspace dim of
+    Nothing -> boundCheckHID "Unable to create dataspace with NULL extent" Dataspace
              $ h5s_create H5S_NULL
     Just encoder -> do
       (rank,p_sz,p_max) <- withEncodedDataspace encoder
-      fmap Dataspace
-        $ contCheckHID "Unable to create simple dataspace"
+      boundCheckHID "Unable to create simple dataspace" Dataspace
         $ h5s_create_simple (fromIntegral rank) p_sz p_max
-
-
--- | Bracket wrapping 'createDataspaceFromExtent'
-withCreateDataspaceFromExtent
-  :: IsExtent dim
-  => dim                 -- ^ Extent of dataspace
-  -> (Dataspace -> IO a) -- ^ Continuation
-  -> IO a
-withCreateDataspaceFromExtent dim
-  = bracket (createDataspaceFromExtent dim) basicClose
-
--- | Bracket wrapping 'createDataspaceFromDSpace'
-withCreateDataspaceFromDSpace
-  :: IsDataspace dim
-  => dim                 -- ^ Extent of dataspace
-  -> (Dataspace -> IO a) -- ^ Continuation
-  -> IO a
-withCreateDataspaceFromDSpace dim
-  = bracket (createDataspaceFromDSpace dim) basicClose
 
 
 -- | Set selection in dataspace to a regular slab.

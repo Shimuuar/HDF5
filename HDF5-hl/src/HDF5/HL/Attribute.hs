@@ -67,6 +67,7 @@ import HDF5.HL.Unsafe.Error
 import HDF5.HL.Serialize
 import HDF5.HL.Dataspace
 import HDF5.HL.Vector
+import HDF5.HL.Monad
 import HDF5.C
 
 ----------------------------------------------------------------
@@ -120,19 +121,15 @@ writeAttr
   -> String -- ^ Attribute name
   -> a      -- ^ Value to write
   -> IO ()
-writeAttr d name a = withFrozenCallStack $ evalContT $ do
-  p_err  <- ContT $ alloca
-  c_path <- ContT $ withCString name
-  space  <- ContT $ withCreateDataspaceFromExtent (getExtent a)
-  tid    <- ContT $ withType $ typeH5 @(ElementOf a)
-  attr   <- ContT $ bracket
-    ( fmap Attribute
-    $ checkHID p_err ("Cannot create attribute " ++ name)
-    $ h5a_create (getHID d) c_path tid (getHID space)
-          H5P_DEFAULT
-          H5P_DEFAULT)
-    basicClose
-  lift $ writeAll attr a
+writeAttr d name a = withFrozenCallStack $ runHdf5M $ do
+  c_path <- liftBracket $ withCString name
+  space  <- hdfCreateDataspaceFromExtent (getExtent a)
+  tid    <- liftBracket $ withType $ typeH5 @(ElementOf a)
+  attr   <- boundCheckHID ("Cannot create attribute " ++ name) Attribute
+          $ h5a_create (getHID d) c_path tid (getHID space)
+                H5P_DEFAULT
+                H5P_DEFAULT
+  liftIO $ writeAll attr a
 
 
 ----------------------------------------------------------------

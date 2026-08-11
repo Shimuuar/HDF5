@@ -149,8 +149,6 @@ module HDF5.HL
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Cont
 import Data.IORef
 import Foreign.C.String
 import Foreign.Marshal
@@ -399,7 +397,7 @@ createEmptyDataset
   -> m Dataset
 createEmptyDataset dir path ty ext props = runLiftHdf5M $ do
   c_path <- liftBracket $ withCString path
-  space  <- liftBracket $ withCreateDataspaceFromDSpace ext
+  space  <- hdfCreateDataspaceFromDSpace ext
   tid    <- liftBracket $ withType ty
   plist  <- hdfDatasetProps $ mconcat props
   fmap Dataset
