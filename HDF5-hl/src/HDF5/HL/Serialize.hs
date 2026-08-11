@@ -179,9 +179,8 @@ class SerializeDSet a where
   -- | Primitive. Use 'writeDatasetAt' instead.
   basicWriteDSet
     :: a
-    -> (forall ext. IsDataspace ext
-        => ext -> Type -> [Property Dataset] -> (Dataset -> IO ()) -> IO ())
-    -> IO ()
+    -> (forall ext. IsDataspace ext => ext -> Type -> [Property Dataset] -> Hdf5M Dataset)
+    -> Hdf5M ()
 
 
 ----------------------------------------------------------------
@@ -217,11 +216,11 @@ newtype SerializeAsArray a = SerializeAsArray a
 
 instance ArrayLike a => SerializeDSet (SerializeAsArray a) where
   basicReadDSet d = SerializeAsArray <$> readAll d
-  basicWriteDSet (SerializeAsArray a) make
-    -- FIXME: This is quite wrong!
-    = undefined
-    -- make (getExtent a) (typeH5 @(ElementOf a)) []
-    -- $ \d -> writeAll d a
+  basicWriteDSet (SerializeAsArray a) make_dset = do
+    ty   <- typeH5 @(ElementOf a)
+    dset <- make_dset (getExtent a) ty []
+    liftIO $ writeAll dset a
+
 
 
 ----------------------------------------------------------------

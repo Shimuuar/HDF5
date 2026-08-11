@@ -467,16 +467,16 @@ readDatasetAt dir path
 
 -- | Create dataset from haskell value of type @a@. 
 writeDatasetAt
-  :: forall a dir m. (SerializeDSet a, IsDirectory dir, MonadIO m, HasCallStack)
+  :: forall a dir m. (SerializeDSet a, IsDirectory dir, MonadIO m, MonadThrow m, HasCallStack)
   => dir      -- ^ Location in HDF5 file
   -> FilePath -- ^ Path to dataset to create
   -> a        -- ^ Value to write to HDF5
   -> m ()
-writeDatasetAt dir path a
-  = liftIO
-  $ basicWriteDSet a
-  $ \ext ty prop action -> 
-    withCreateEmptyDataset dir path ty ext prop action
+writeDatasetAt dir path a = runLiftHdf5M $ do
+  basicWriteDSet a $ \ext ty prop ->
+    -- FIXME: I need to create some sane way of specifying type
+    undefined
+    -- withCreateEmptyDataset dir path ty ext prop action
 
 
 -- | Set new extent of dataspace. This function could be applied to
