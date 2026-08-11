@@ -10,7 +10,6 @@ module HDF5.HL.Dataspace
   , dataspaceExtent
   , setSlabSelection
     -- ** Creation
-  , getDataspace
   , hdfCreateDataspaceFromExtent
   , hdfCreateDataspaceFromDSpace
     -- * Encoding as haskell data type
@@ -434,17 +433,13 @@ setSlabSelection (Dataspace hid) off sz = runLiftHdf5M $ do
 -- Dataspace querying
 ----------------------------------------------------------------
 
--- | Return dataspace associated with dataset or attribute.
-getDataspace :: (HasData a, MonadIO m, HasCallStack) => a -> m Dataspace
-getDataspace = liftIO . getDataspaceIO
-
 -- | Find rank of dataspace. Returns @Nothing@ for null dataspaces,
 --   @Just 0@ for scalars and @Just n@ for rank-N arrays.
 dataspaceRank
-  :: (HasCallStack, MonadIO m, MonadThrow m)
+  :: (HasCallStack)
   => Dataspace
-  -> m (Maybe Int)
-dataspaceRank (Dataspace hid) = runLiftHdf5M $ do
+  -> Hdf5M (Maybe Int)
+dataspaceRank (Dataspace hid) = do
   contUnchecked (h5s_get_simple_extent_type hid) >>= \case
     H5S_NULL   -> pure   Nothing
     H5S_SCALAR -> pure $ Just 0

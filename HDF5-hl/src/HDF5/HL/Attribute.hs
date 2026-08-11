@@ -124,9 +124,9 @@ writeAttr
 writeAttr d name a = withFrozenCallStack $ runHdf5M $ do
   c_path <- liftBracket $ withCString name
   space  <- hdfCreateDataspaceFromExtent (getExtent a)
-  tid    <- liftBracket $ withType $ typeH5 @(ElementOf a)
+  ty_a   <- typeH5 @(ElementOf a)
   attr   <- boundCheckHID ("Cannot create attribute " ++ name) Attribute
-          $ h5a_create (getHID d) c_path tid (getHID space)
+          $ h5a_create (getHID d) c_path (getTypeHID ty_a) (getHID space)
                 H5P_DEFAULT
                 H5P_DEFAULT
   liftIO $ writeAll attr a

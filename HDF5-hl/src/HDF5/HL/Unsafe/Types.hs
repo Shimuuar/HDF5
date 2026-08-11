@@ -9,8 +9,8 @@
 module HDF5.HL.Unsafe.Types
   ( -- * Operations on types
     Type(..)
-  , unsafeNewType
-  , withType
+  , getTypeHID
+  , showType
   , sizeOfH5
     -- * Scalar data types
   , tyI8, tyI16, tyI32, tyI64
@@ -21,7 +21,7 @@ module HDF5.HL.Unsafe.Types
   , tyI8BE, tyI16BE, tyI32BE, tyI64BE
   , tyU8BE, tyU16BE, tyU32BE, tyU64BE
     -- * Patterns
-  , pattern Array
+  -- , pattern Array
   , makePackedRecord
   , makeEnumeration
     -- * Element
@@ -67,7 +67,6 @@ import GHC.Stack
 import GHC.Generics
 import GHC.TypeLits
 import GHC.ForeignPtr  (mallocPlainForeignPtrAlignedBytes)
-import GHC.IO          (IO(..))
 
 import HDF5.HL.Unsafe.Error
 import HDF5.HL.Monad
@@ -81,52 +80,41 @@ import HDF5.C
 --   in memory and on disc. Type class 'Element' is used to associate
 --   HDF5 type to haskell values.
 data Type
-  = Type   HID  {-# UNPACK #-} !(IORef ())
-    -- ^ Type which should be closed
-  | Native HID
-    -- ^ Data types which does not need to be finalized
+  = Type   !HID -- ^ Type which should be closed
+  | Native !HID -- ^ Data types which does not need to be finalized
 
--- | Create new type. IO action must return fresh data type which
---   should be closed with 'h5t_close'.
-unsafeNewType
-  :: IO HID -- ^ IO action which generates /fresh/ HID for type
-  -> IO Type
-unsafeNewType mkHID = alloca $ \p_err -> mask_ $ do
-  token <- newIORef ()
-  hid   <- mkHID
-  _     <- mkWeakIORef token (void $ lockHDF5 $ h5t_close hid p_err)
-  pure $ Type hid token
 
--- | Use HID from data type. This function ensures that HID is kept
---   alive while callback is running.
-withType :: Type -> (HID -> IO a) -> IO a
-withType (Native hid)     fun = fun hid
-withType (Type hid token) fun = IO $ \s ->
-  case fun hid of
-    IO action# -> keepAlive# token s action#
+getTypeHID :: Type -> HID
+getTypeHID = \case
+  Type   tid -> tid
+  Native tid -> tid
 
-instance Show Type where
-  show ty = unsafePerformIO $ runHdf5M $ do
-    tid   <- liftBracket $ withType ty
-    p_sz  <- liftBracket $ alloca
-    _     <- contCheckHErr "Can't show type"
-           $ h5lt_dtype_to_text tid nullPtr h5lt_DDL p_sz
-    sz    <- liftIO $ peek p_sz
-    p_str <- liftBracket $ allocaArray0 $ fromIntegral sz
-    contCheckHErr "Can't show type"
-      $ h5lt_dtype_to_text tid p_str h5lt_DDL p_sz
-    liftIO $ peekCString p_str
+instance Closable Type where
+  basicClose = \case
+    Native _   -> pure ()
+    Type   tid -> alloca $ \p_err -> do
+      -- FIXME: We don't check for errors here.
+      _ <- lockHDF5 $ h5t_close tid p_err
+      return ()
+
+showType :: Type -> Hdf5M String
+showType (getTypeHID -> tid) = do
+  p_sz  <- liftBracket $ alloca
+  _     <- contCheckHErr "Can't show type"
+         $ h5lt_dtype_to_text tid nullPtr h5lt_DDL p_sz
+  sz    <- liftIO $ peek p_sz
+  p_str <- liftBracket $ allocaArray0 $ fromIntegral sz
+  contCheckHErr "Can't show type"
+    $ h5lt_dtype_to_text tid p_str h5lt_DDL p_sz
+  liftIO $ peekCString p_str
 
 
 -- | Compute size of HDF5 type.
-sizeOfH5 :: HasCallStack => Type -> Int
-sizeOfH5 ty = withFrozenCallStack $ unsafePerformIO $
-  withType ty $ \tid -> do
-    alloca $ \p_err -> do
-      sz <- lockHDF5 $ h5t_get_size tid p_err
-      case sz of
-        0 -> throwM =<< decodeError p_err "Cannot compute size of data type"
-        _ -> pure $! fromIntegral sz
+sizeOfH5 :: HasCallStack => Type -> Hdf5M Int
+sizeOfH5 ty = withFrozenCallStack $ do
+  sz <- contCheckCSize "Cannot compute size of data type" 
+      $ h5t_get_size (getTypeHID ty)
+  pure $! fromIntegral sz
 
 
 ----------------------------------------------------------------
@@ -173,90 +161,79 @@ tyU16BE = Native h5t_STD_U16BE
 tyU32BE = Native h5t_STD_U32BE
 tyU64BE = Native h5t_STD_U64BE
 
--- | @Array ty dim@ is an array of HDF5 values of type @ty@ and
---   dimensions @dim@.
-pattern Array :: Type -> [Int] -> Type
-pattern Array ty dim <- (matchArray -> Just (ty, dim))
-  where
-    Array ty dim = makeArray ty dim
+-- -- | @Array ty dim@ is an array of HDF5 values of type @ty@ and
+-- --   dimensions @dim@.
+-- pattern Array :: Type -> [Int] -> Type
+-- pattern Array ty dim <- (matchArray -> Just (ty, dim))
+--   where
+--     Array ty dim = makeArray ty dim
 
-makeArray :: Type -> [Int] -> Type
-makeArray ty dim = unsafePerformIO $ runHdf5M $ do
-  tid   <- liftBracket $ withType ty
+-- matchArray :: Type -> Maybe (Type, [Int])
+-- matchArray ty = unsafePerformIO $ runHdf5M $ do
+--   tid   <- liftBracket $ withType ty
+--   p_err <- askPErr
+--   -- FIXME: Another error handler
+--   liftIO (lockHDF5 $ h5t_get_class tid p_err) >>= \case
+--     H5T_NO_CLASS -> abort "INTERNAL: Unable to get class for a type"
+--     H5T_ARRAY    -> do
+--         n     <- fmap fromIntegral
+--                $ contCheckCInt "INTERNAL: Unable to get number of array dimensions"
+--                $ h5t_get_array_ndims tid
+--         buf   <- liftBracket $ allocaArray n
+--         _     <- contCheckCInt "INTERNAL: Unable to get array's dimensions"
+--                $ h5t_get_array_dims tid buf
+--         super <- contCheckHID "INTERNAL: Cannot get supertype"
+--                $ h5t_get_super tid
+--         super' <- liftIO $ unsafeNewType $ pure super
+--         dims  <- liftIO $ peekArray n buf
+--         pure $ Just (super', fromIntegral <$> dims)
+--     _ -> pure Nothing
+
+
+makeArray :: Type -> [Int] -> Hdf5M Type
+makeArray ty dim = do
   p_dim <- liftBracket $ withArray (fromIntegral <$> dim)
-  tid_a <- contCheckHID "Cannot create array type"
-         $ h5t_array_create tid n p_dim
-  liftIO $ unsafeNewType $ pure tid_a -- FIXME: Anyay it's wrong
+  boundCheckHID "Cannot create array type" Type
+    $ h5t_array_create (getTypeHID ty) n p_dim
   where
     n = fromIntegral $ length dim
 
-matchArray :: Type -> Maybe (Type, [Int])
-matchArray ty = unsafePerformIO $ runHdf5M $ do
-  tid   <- liftBracket $ withType ty
-  p_err <- askPErr
-  -- FIXME: Another error handler
-  liftIO (lockHDF5 $ h5t_get_class tid p_err) >>= \case
-    H5T_NO_CLASS -> abort "INTERNAL: Unable to get class for a type"
-    H5T_ARRAY    -> do
-        n     <- fmap fromIntegral
-               $ contCheckCInt "INTERNAL: Unable to get number of array dimensions"
-               $ h5t_get_array_ndims tid
-        buf   <- liftBracket $ allocaArray n
-        _     <- contCheckCInt "INTERNAL: Unable to get array's dimensions"
-               $ h5t_get_array_dims tid buf
-        super <- contCheckHID "INTERNAL: Cannot get supertype"
-               $ h5t_get_super tid
-        super' <- liftIO $ unsafeNewType $ pure super
-        dims  <- liftIO $ peekArray n buf
-        pure $ Just (super', fromIntegral <$> dims)
-    _ -> pure Nothing
-
-
 -- | Create record with named fields.
-makePackedRecord :: HasCallStack => [(String,Type)] -> Type
-makePackedRecord fields = unsafePerformIO $ withFrozenCallStack $ unsafeNewType $ do
-  alloca $ \p_err -> do
-    ty_rec <- checkHID p_err "Cannot create compound type"
-            $ h5t_create H5T_COMPOUND (fromIntegral size)
-    -- NOTE: At this point we can't simply throw exceptions or else
-    --       we'll leak ty_rec.
-    forM_ fields_sz $ \(nm,ty,off) -> do
-      withCString nm $ \c_nm -> do
-        withType ty $ \tid ->
-          lockHDF5 (h5t_insert ty_rec c_nm (fromIntegral off) tid p_err) >>= \case
-            -- We must call decodeError before h5t_close in order to
-            -- recover stack. Also we closing ty_rec on best effort
-            -- basis
-            HErrored -> do err <- decodeError p_err "Unable to pack data types"
-                           _   <- lockHDF5 $ h5t_close ty_rec p_err
-                           throwM err
-            _        -> pure ()
-    pure ty_rec
-  where
-    computeOff !off [] = (off,[])
-    computeOff !off ((nm,ty):rest) = (sz, (nm,ty,off) : rest') where
-      (sz,rest') = computeOff (off + sizeOfH5 ty) rest
-    (size, fields_sz) = computeOff 0 fields
+makePackedRecord :: HasCallStack => [(String,Type)] -> Hdf5M Type
+makePackedRecord fields = do
+  -- Compute size and offsets of fields
+  let computeOff !off []             = pure (off,[])
+      computeOff !off ((nm,ty):rest) = do
+        sz           <- sizeOfH5 ty
+        (size,rest') <- computeOff (off + sz) rest
+        pure (size, (nm,ty,off) : rest')
+  (size, fields_sz) <- computeOff 0 fields
+  -- Construct type
+  ty_rec <- boundCheckHID "Cannot create compound type" Type
+          $ h5t_create H5T_COMPOUND (fromIntegral size)
+  forM_ fields_sz $ \(nm,ty,off) -> do
+    c_nm <- liftBracket $ withCString nm
+    contCheckHErr "Unable to pack data types"
+      $ h5t_insert (getTypeHID ty_rec) c_nm (fromIntegral off) (getTypeHID ty)
+  pure ty_rec
+
 
 -- | Make enumeration data type which is based on underlying type @a@.
-makeEnumeration :: forall a. (Element a, HasCallStack) => [(String,a)] -> Type
-makeEnumeration elems = unsafePerformIO $ withFrozenCallStack $ unsafeNewType $ evalContT $ do
-  p_err    <- ContT $ alloca
-  p_val    <- ContT $ allocaElement
-  base_tid <- ContT $ withType (typeH5 @a)
+makeEnumeration :: forall a. (Element a, HasCallStack) => [(String,a)] -> Hdf5M Type
+makeEnumeration elems = do
+  p_val    <- liftBracket allocaElement
+  base_ty  <- typeH5 @a
+  let base_tid = getTypeHID base_ty
   -- Create enumeration data type. We want to release it in case of
-  -- any exception
-  tid      <- ContT $ bracketOnError
-    ( checkHID p_err "Cannot create enumeration type"
-    $ h5t_enum_create base_tid )
-    (\tid -> void $ lockHDF5 $ h5t_close tid p_err)
-  lift $ do
-    forM_ elems $ \(nm,a) -> do
-      pokeH5 p_val a
-      withCString nm $ \c_nm ->
-          checkHErr p_err "Cannot add member to enumeration"
-        $ h5t_enum_insert tid c_nm p_val
-    pure tid
+  -- any exception  
+  tid <- boundCheckHID "Cannot create enumeration type" Type
+       $ h5t_enum_create base_tid
+  forM_ elems $ \(nm,a) -> do
+    liftIO $ pokeH5 p_val a
+    c_nm <- liftBracket $ withCString nm
+    contCheckHErr "Cannot add member to enumeration"
+      $ h5t_enum_insert (getTypeHID tid) c_nm p_val
+  pure tid
 
 
 ----------------------------------------------------------------
@@ -267,11 +244,10 @@ makeEnumeration elems = unsafePerformIO $ withFrozenCallStack $ unsafeNewType $ 
 --   from buffer using 'Storable'.
 class Element a where
   -- | HDF5 type of element.
-  typeH5 :: Type
+  typeH5 :: Hdf5M Type
   -- | Compute size of element. It must be same as @sizeOfH5 (typeH5 \@a)@
   fastSizeOfH5 :: Int
-  fastSizeOfH5 = sizeOfH5 (typeH5 @a)
-
+  -- | Alignment requirements
   alignmentH5 :: Int
   -- | Read haskell data type from buffer
   peekH5 :: Ptr a -> IO a
@@ -296,7 +272,6 @@ pokeByteOffH5 :: Element a => Ptr a -> Int -> a -> IO ()
 {-# INLINE pokeByteOffH5 #-}
 pokeByteOffH5 ptr off = pokeH5 (ptr `plusPtr` off)
 
-
 allocaElement :: forall a b. Element a => (Ptr a -> IO b) -> IO b
 allocaElement = allocaBytesAligned (fastSizeOfH5 @a) (alignmentH5 @a)
 
@@ -312,15 +287,15 @@ mallocVectorH5 size = mallocPlainForeignPtrAlignedBytes
 
 
 instance Element Int where
-  typeH5 | wordSizeInBits == 64 = tyI64
-         | otherwise            = tyI32
+  typeH5 | wordSizeInBits == 64 = pure tyI64
+         | otherwise            = pure tyI32
   fastSizeOfH5 = sizeOf    (undefined :: Int)
   alignmentH5  = alignment (undefined :: Int)
   peekH5       = peek
   pokeH5       = poke
 instance Element Word where
-  typeH5 | wordSizeInBits == 64 = tyU64
-         | otherwise            = tyU32
+  typeH5 | wordSizeInBits == 64 = pure tyU64
+         | otherwise            = pure tyU32
   fastSizeOfH5 = sizeOf    (undefined :: Word)
   alignmentH5  = alignment (undefined :: Word)
   peekH5       = peek
@@ -328,62 +303,62 @@ instance Element Word where
 
 
 instance Element Int8   where
-  typeH5       = tyI8
+  typeH5       = pure tyI8
   fastSizeOfH5 = sizeOf    (undefined :: Int8)
   alignmentH5  = alignment (undefined :: Int8)
   peekH5       = peek
   pokeH5       = poke
 instance Element Int16  where
-  typeH5       = tyI16
+  typeH5       = pure tyI16
   fastSizeOfH5 = sizeOf    (undefined :: Int16)
   alignmentH5  = alignment (undefined :: Int16)
   peekH5       = peek
   pokeH5       = poke
 instance Element Int32  where
-  typeH5       = tyI32
+  typeH5       = pure tyI32
   fastSizeOfH5 = sizeOf    (undefined :: Int32)
   alignmentH5  = alignment (undefined :: Int32)
   peekH5       = peek
   pokeH5       = poke
 instance Element Int64  where
-  typeH5       = tyI64
+  typeH5       = pure tyI64
   fastSizeOfH5 = sizeOf    (undefined :: Int64)
   alignmentH5  = alignment (undefined :: Int64)
   peekH5       = peek
   pokeH5       = poke
 instance Element Word8  where
-  typeH5       = tyU8
+  typeH5       = pure tyU8
   fastSizeOfH5 = sizeOf    (undefined :: Word8)
   alignmentH5  = alignment (undefined :: Word8)
   peekH5       = peek
   pokeH5       = poke
 instance Element Word16 where
-  typeH5       = tyU16
+  typeH5       = pure tyU16
   fastSizeOfH5 = sizeOf    (undefined :: Word16)
   alignmentH5  = alignment (undefined :: Word16)
   peekH5       = peek
   pokeH5       = poke
 instance Element Word32 where
-  typeH5       = tyU32
+  typeH5       = pure tyU32
   fastSizeOfH5 = sizeOf    (undefined :: Word32)
   alignmentH5  = alignment (undefined :: Word32)
   peekH5       = peek
   pokeH5       = poke
 instance Element Word64 where
-  typeH5       = tyU64
+  typeH5       = pure tyU64
   fastSizeOfH5 = sizeOf    (undefined :: Word64)
   alignmentH5  = alignment (undefined :: Word64)
   peekH5       = peek
   pokeH5       = poke
 
 instance Element Float  where
-  typeH5       = tyF32
+  typeH5       = pure tyF32
   fastSizeOfH5 = sizeOf    (undefined :: Float)
   alignmentH5  = alignment (undefined :: Float)
   peekH5       = peek
   pokeH5       = poke
 instance Element Double where
-  typeH5       = tyF64
+  typeH5       = pure tyF64
   fastSizeOfH5 = sizeOf    (undefined :: Double)
   alignmentH5  = alignment (undefined :: Double)
   peekH5       = peek
@@ -391,7 +366,8 @@ instance Element Double where
 
 -- | Uses same convention as @h5py@ by default.
 instance Element a => Element (Complex a) where
-  typeH5       = makePackedRecord [("r",ty), ("i",ty)] where ty = typeH5 @a
+  typeH5       = do ty <- typeH5 @a
+                    makePackedRecord [("r",ty), ("i",ty)]
   fastSizeOfH5 = 2 * fastSizeOfH5 @a
   alignmentH5  = alignmentH5 @a
   peekH5 ptr   = (:+) <$> peekH5 (castPtr ptr) <*> peekElemOffH5 (castPtr ptr) 1
@@ -401,7 +377,8 @@ instance Element a => Element (Complex a) where
 
 
 instance (Element a, FM.Prod a v) => Element (FM.ViaFixed a v) where
-  typeH5       = Array (typeH5 @a) [FM.length (undefined :: FM.ViaFixed a v)]
+  typeH5       = do ty <- typeH5 @a
+                    makeArray ty [FM.length (undefined :: FM.ViaFixed a v)]
   fastSizeOfH5 = fastSizeOfH5 @a *  FM.length (undefined :: FM.ViaFixed a v)
   alignmentH5  = alignmentH5  @a
   peekH5 ptr   = FM.generateM (peekElemOffH5 (castPtr ptr))
@@ -412,7 +389,8 @@ instance (Element a, FM.Prod a v) => Element (FM.ViaFixed a v) where
   {-# INLINE pokeH5       #-}
 
 instance (Element a, F.Vector v a) => Element (F.ViaFixed v a) where
-  typeH5       = Array (typeH5 @a) [F.length (undefined :: F.ViaFixed v a)]
+  typeH5       = do ty <- typeH5 @a
+                    makeArray ty [FM.length (undefined :: F.ViaFixed v a)]
   fastSizeOfH5 = fastSizeOfH5 @a *  F.length (undefined :: F.ViaFixed v a)
   alignmentH5  = alignmentH5  @a
   peekH5 ptr   = F.generateM (peekElemOffH5 (castPtr ptr))
@@ -444,7 +422,7 @@ wordSizeInBits = finiteBitSize (0 :: Word)
 instance ( Generic a
          , GRecElement (Rep a)
          ) => Element (Generically a) where
-  typeH5       = makePackedRecord $ gtypeH5 @(Rep a) []
+  typeH5       = makePackedRecord =<< gtypeH5 @(Rep a)
   alignmentH5  = galignmentH5 @(Rep a)
   fastSizeOfH5 = gfastSizeOfH5 @(Rep a)
   peekH5 p = do
@@ -458,7 +436,7 @@ instance ( Generic a
   {-# INLINE pokeH5       #-}
 
 class GRecElement f where
-  gtypeH5 :: [(String,Type)] -> [(String,Type)]
+  gtypeH5 :: Hdf5M [(String,Type)]
   gfastSizeOfH5 :: Int
   galignmentH5 :: Int
   gpeekH5 :: Ptr () -> Int -> IO (f p, Int)
@@ -468,7 +446,7 @@ deriving newtype instance GRecElement f => GRecElement (M1 D i f)
 deriving newtype instance GRecElement f => GRecElement (M1 C i f)
 
 instance (GRecElement f, GRecElement g) => GRecElement (f :*: g) where
-  gtypeH5       = gtypeH5 @f . gtypeH5 @g
+  gtypeH5       = liftA2 (<>) (gtypeH5 @f) (gtypeH5 @g)
   gfastSizeOfH5 = gfastSizeOfH5 @f + gfastSizeOfH5 @g
   galignmentH5  = galignmentH5 @f `max` galignmentH5 @g
   gpeekH5 p i = do (f, i')  <- gpeekH5 p i
@@ -485,7 +463,8 @@ instance (GRecElement f, GRecElement g) => GRecElement (f :*: g) where
 instance ( KnownSymbol fld
          , Element a
          ) => GRecElement (M1 S (MetaSel (Just fld) u s l) (K1 r a)) where
-  gtypeH5 = ((symbolVal (Proxy @fld), typeH5 @a):)
+  gtypeH5 = do ty <- typeH5 @a
+               pure [(symbolVal (Proxy @fld), ty)]
   gfastSizeOfH5 = fastSizeOfH5 @a
   galignmentH5  = alignmentH5  @a
   gpeekH5 p i = do

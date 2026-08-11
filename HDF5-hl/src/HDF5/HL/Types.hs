@@ -5,8 +5,8 @@
 module HDF5.HL.Types
   ( -- * Operations on types
     Type
-  , withType
   , sizeOfH5
+  , showType
     -- * Scalar data types
   , tyI8, tyI16, tyI32, tyI64
   , tyU8, tyU16, tyU32, tyU64
@@ -16,7 +16,7 @@ module HDF5.HL.Types
   , tyI8BE, tyI16BE, tyI32BE, tyI64BE
   , tyU8BE, tyU16BE, tyU32BE, tyU64BE
     -- * Patterns
-  , pattern Array
+  -- , pattern Array
   , makePackedRecord
   , makeEnumeration
     -- * Element

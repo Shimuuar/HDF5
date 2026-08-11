@@ -23,6 +23,7 @@ module HDF5.HL.Unsafe.Error
   , contCheckHErr
   , contCheckHTri
   , contCheckCInt
+  , contCheckCSize
   , contCheckCLLong
   , contUnchecked
   , abort
@@ -194,6 +195,14 @@ contCheckHErr msg action = do
 contCheckCInt :: String -> (Ptr HID -> HDF5IO CInt) -> Hdf5M CInt
 {-# INLINE contCheckCInt #-}
 contCheckCInt msg action = do
+  p_err <- askPErr
+  liftIO (lockHDF5 $ action p_err) >>= \case
+    n | n < 0     -> abort msg
+      | otherwise -> pure n
+
+contCheckCSize :: String -> (Ptr HID -> HDF5IO CSize) -> Hdf5M CSize
+{-# INLINE contCheckCSize #-}
+contCheckCSize msg action = do
   p_err <- askPErr
   liftIO (lockHDF5 $ action p_err) >>= \case
     n | n < 0     -> abort msg

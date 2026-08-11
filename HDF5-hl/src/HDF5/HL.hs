@@ -95,8 +95,6 @@ module HDF5.HL
   , withCreateEmptyDataset
   , setDatasetExtent
     -- ** Dataset information
-  , getType
-  , getDataspace
   , readDataspace
     -- ** Reading & writing of arrays
   , writeSlab
@@ -182,17 +180,15 @@ import Prelude hiding (read,readIO)
 close :: (Closable a, MonadIO m, HasCallStack) => a -> m ()
 close = liftIO . basicClose
 
--- | Read type information for dataset or attribute
-getType :: (HasData a, MonadIO m, HasCallStack) => a -> m Type
-getType = liftIO . getTypeIO
 
 -- | Decode dataspace as haskell value
 readDataspace
   :: (HasData a, IsDataspace ext, MonadIO m, MonadThrow m, HasCallStack)
   => a -> m ext
-readDataspace dset = do
-  dspace <- getDataspace dset
-  either throwM pure =<< runParseFromDataspace dspace
+readDataspace dset = liftIO $ runHdf5M $ do
+  -- FIXME: Error handling is all wrong here!
+  dspace <- getDataspaceHDF dset
+  liftIO $ either throwM pure =<< runParseFromDataspace dspace
 
 
 
@@ -395,14 +391,14 @@ createEmptyDataset
   -> ext                -- ^ Extent of dataset. See 'IsDataspace' for details.
   -> [Property Dataset] -- ^ Dataset creation properties
   -> m Dataset
+-- FIXME: API is all wrong here! Type is only accessible inside of Hdf5M
 createEmptyDataset dir path ty ext props = runLiftHdf5M $ do
   c_path <- liftBracket $ withCString path
   space  <- hdfCreateDataspaceFromDSpace ext
-  tid    <- liftBracket $ withType ty
   plist  <- hdfDatasetProps $ mconcat props
   fmap Dataset
     $ contCheckHID ("Unable to create dataset")
-    $ h5d_create (getHID dir) c_path tid (getHID space)
+    $ h5d_create (getHID dir) c_path (getTypeHID ty) (getHID space)
       H5P_DEFAULT
       (getHID plist)
       H5P_DEFAULT
@@ -452,8 +448,12 @@ writeAllAt
   -> a                  -- ^ Value to write  
   -> m ()
 writeAllAt dir path prop a
-  = withCreateEmptyDataset dir path (typeH5 @(ElementOf a)) (getExtent a) prop
-  $ \dset -> writeAll dset a
+  = undefined
+  -- FIXME: I need to figure out sane API for creating empty dataset.
+  --        How to specify types in haskell???
+  --
+  -- = withCreateEmptyDataset dir path (typeH5 @(ElementOf a)) (getExtent a) prop
+  -- $ \dset -> writeAll dset a
 
 -- | Read dataset from HDF5 using 'SerializeDSet' machinery.
 readDatasetAt
@@ -489,7 +489,7 @@ writeDatasetAt dir path a
 setDatasetExtent :: (HasCallStack, IsExtent dim, MonadIO m, MonadThrow m) => Dataset -> dim -> m ()
 setDatasetExtent dset dim = runLiftHdf5M $ do
   (r_ext,p_ext) <- withEncodedExtent $ encodeExtent dim
-  spc    <- liftBracket $ withDataspace dset
+  spc    <- getDataspaceHDF dset
   r_dset <- contCheckCInt "Cannot get rank of dataspace's extent"
           $ h5s_get_simple_extent_ndims (getHID spc)
   when (fromIntegral r_ext /= r_dset) $ throwM $
@@ -506,14 +506,19 @@ setDatasetExtent dset dim = runLiftHdf5M $ do
 
 -- | Find rank of dataset or attribute. Returns @Nothing@ for null
 --   dataspaces, @Just 0@ for scalars and @Just n@ for rank-N arrays.
-rank :: (HasData a, MonadIO m, HasCallStack) => a -> m (Maybe Int)
-rank a = liftIO $ withDataspace a dataspaceRank
+rank
+  :: (HasData a, MonadIO m, MonadThrow m, HasCallStack)
+  => a -> m (Maybe Int)
+rank a = runLiftHdf5M $ dataspaceRank =<< getDataspaceHDF a
+   
 
 -- | Compute extent of an dataset or attribute. Returns nothing when
 --   extent has unexpected shape. E.g. if 2D array is expected but
 --   object is 1D array. Depending on type could be used to obtain
 --   size of size and maximum size for any\/each dimensions.
 extent
-  :: (HasData a, IsDataspace ext, MonadIO m, HasCallStack)
+  :: (HasData a, IsDataspace ext, MonadIO m, MonadThrow m, HasCallStack)
   => a -> m (Either DataspaceParseError ext)
-extent a = liftIO $ withDataspace a runParseFromDataspace
+extent a = runLiftHdf5M $ do
+  dspace <- getDataspaceHDF a
+  liftIO $ runParseFromDataspace dspace

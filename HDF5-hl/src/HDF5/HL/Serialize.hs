@@ -67,14 +67,15 @@ import Prelude hiding (read,readIO)
 readAll
   :: forall a d m. (ArrayLike a, HasData d, MonadIO m, MonadMask m, HasCallStack)
   => d -> m a
-readAll dset = withDataspace dset $ \spc_file -> do
-  ext <- dataspaceExtent @_ @(ExtentOf a) spc_file >>= \case
-    Left  e -> throwM e
+readAll dset = either throwM pure <=< runLiftHdf5M $ do
+  spc_file <- getDataspaceHDF dset
+  ty_a     <- typeH5 @(ElementOf a)
+  ext      <- dataspaceExtent @_ @(ExtentOf a) spc_file >>= \case
+    Left  e -> throwM e -- FIXME: wrong throwing method!
     Right x -> pure x
-  res <- liftIO $ basicReadFromSlab ext $ \ptr -> evalContT $ do
+  liftIO $ basicReadFromSlab ext $ \ptr -> evalContT $ do
     p_err <- ContT alloca
-    lift $ unsafeReadAll p_err dset (typeH5 @(ElementOf a)) ptr
-  either throwM pure res
+    lift $ unsafeReadAll p_err dset ty_a ptr
 
 -- | Writing into dataset\/attributes without offset. It's assumed
 --   that dataset was created with correct size.
@@ -83,11 +84,11 @@ writeAll
   => d -- ^ Dataset or attribute
   -> a -- ^ Value to write
   -> m ()
-writeAll dset a = do
-  res <- liftIO $ basicWriteToSlab a $ \ptr -> evalContT $ do
+writeAll dset a = either throwM pure <=< runLiftHdf5M $ do
+  ty_a <- typeH5 @(ElementOf a)
+  liftIO $ basicWriteToSlab a $ \ptr -> evalContT $ do
     p_err <- ContT alloca
-    lift $ unsafeWriteAll p_err dset (typeH5 @(ElementOf a)) ptr
-  either throwM pure res
+    lift $ unsafeWriteAll p_err dset ty_a ptr
 
 -- | Read data from dataset using slab selection. For example:
 --
@@ -100,16 +101,16 @@ readSlab
   -> ExtentOf a -- ^ Offset into array
   -> ExtentOf a -- ^ Array size
   -> m a
-readSlab d off sz = withDataspace d $ \spc_file -> do
-  res <- liftIO $ basicReadFromSlab sz $ \ptr -> runHdf5MEither $ do
+readSlab d off sz = either throwM pure <=< runLiftHdf5M $ do
+  spc_file <- getDataspaceHDF d
+  ty_a     <- typeH5 @(ElementOf a)
+  liftIO $ basicReadFromSlab sz $ \ptr -> runHdf5MEither $ do
     liftIO $ setSlabSelection spc_file off sz
     spc_mem <- hdfCreateDataspaceFromExtent sz
-    tid     <- liftBracket $ withType (typeH5 @(ElementOf a))
     contCheckHErr "Reading dataset data failed"
-      $ h5d_read (getHID d) tid
+      $ h5d_read (getHID d) (getTypeHID ty_a)
           (getHID spc_mem) (getHID spc_file)
           H5P_DEFAULT (castPtr ptr)
-  either throwM pure res
 
 -- | Write provided data at given offset. For example
 --
@@ -122,16 +123,16 @@ writeSlab
   -> ExtentOf a -- ^ Offset into array
   -> a          -- ^ Value to write
   -> m ()
-writeSlab dset off a = do
-  res <- liftIO $ basicWriteToSlab a $ \ptr -> runHdf5MEither $ do
-    spc_file <- liftIO $ getDataspaceIO dset
+writeSlab dset off a = either throwM pure <=< runLiftHdf5M $ do
+  spc_file <- getDataspaceHDF dset
+  ty_a     <- typeH5 @(ElementOf a)
+  liftIO $ basicWriteToSlab a $ \ptr -> runHdf5MEither $ do
     liftIO $ setSlabSelection spc_file off (getExtent a)
     spc_mem  <- hdfCreateDataspaceFromExtent $ getExtent a
-    tid      <- liftBracket $ withType (typeH5 @(ElementOf a))
     contCheckHErr "Writing dataset data failed"
-      $ h5d_write (getHID dset) tid
+      $ h5d_write (getHID dset) (getTypeHID ty_a)
           (getHID spc_mem) (getHID spc_file) H5P_DEFAULT ptr
-  either throwM pure res
+
 
 
 ----------------------------------------------------------------
@@ -217,8 +218,10 @@ newtype SerializeAsArray a = SerializeAsArray a
 instance ArrayLike a => SerializeDSet (SerializeAsArray a) where
   basicReadDSet d = SerializeAsArray <$> readAll d
   basicWriteDSet (SerializeAsArray a) make
-    = make (getExtent a) (typeH5 @(ElementOf a)) []
-    $ \d -> writeAll d a
+    -- FIXME: This is quite wrong!
+    = undefined
+    -- make (getExtent a) (typeH5 @(ElementOf a)) []
+    -- $ \d -> writeAll d a
 
 
 ----------------------------------------------------------------

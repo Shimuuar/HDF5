@@ -18,7 +18,6 @@ module HDF5.HL.Unsafe.Wrappers
   , IsDirectory
   , HasAttrs
   , HasData(..)
-  , withDataspace
   ) where
 
 import Control.Monad.Catch
@@ -59,9 +58,9 @@ class IsObject a => HasAttrs a
 -- | HDF5 entities which contains data that could be
 class IsObject a => HasData a where
   -- | Get type of object
-  getTypeIO      :: HasCallStack => a -> IO Type
+  getTypeHDF      :: HasCallStack => a -> Hdf5M Type
   -- | Get dataspace associated with object
-  getDataspaceIO :: HasCallStack => a -> IO Dataspace
+  getDataspaceHDF :: HasCallStack => a -> Hdf5M Dataspace
   -- | Read all content of object
   unsafeReadAll  :: HasCallStack
                  => Ptr HID -- ^ Error pointer
@@ -77,9 +76,6 @@ class IsObject a => HasData a where
                  -> Ptr x   -- ^ Buffer with data
                  -> IO (Either Error ())
 
-
-withDataspace :: (HasData a, MonadIO m, MonadMask m) => a -> (Dataspace -> m b) -> m b
-withDataspace a = bracket (liftIO $ getDataspaceIO a) (liftIO . basicClose)
 
 
 ----------------------------------------------------------------
@@ -145,23 +141,20 @@ instance HasAttrs    Group
 ----------------
 
 instance HasData Dataset where
-  getTypeIO (Dataset hid) = withFrozenCallStack $ alloca $ \p_err ->
-      unsafeNewType
-    $ checkHID p_err "Cannot get type of dataset"
+  getTypeHDF (Dataset hid) = withFrozenCallStack
+    $ boundCheckHID "Cannot get type of dataset" Type
     $ h5d_get_type hid
-  getDataspaceIO (Dataset hid) = withFrozenCallStack $ alloca $ \p_err ->
-      fmap Dataspace
-    $ checkHID p_err "Cannot read dataset's dataspace"
+  -- FIXME: Leaks!
+  getDataspaceHDF (Dataset hid) = withFrozenCallStack
+    $ boundCheckHID "Cannot read dataset's dataspace" Dataspace
     $ h5d_get_space hid
   unsafeReadAll p_err (Dataset hid) ty buf = runHdf5MEither $ do
-    tid <- liftBracket $ withType ty
     contCheckHErr "Reading dataset data failed"
-      $ h5d_read hid tid
+      $ h5d_read hid (getTypeHID ty)
           h5s_ALL h5s_ALL H5P_DEFAULT (castPtr buf)
   unsafeWriteAll p_err (Dataset hid) ty buf = runHdf5MEither $ do
-    tid <- liftBracket $ withType ty
     contCheckHErr "Writing dataset data failed"
-      $ h5d_write hid tid
+      $ h5d_write hid (getTypeHID ty)
           h5s_ALL h5s_ALL H5P_DEFAULT buf
 
 instance HasAttrs Dataset
@@ -169,22 +162,18 @@ instance HasAttrs Dataset
 ----------------
 
 instance HasData Attribute where
-  getTypeIO (Attribute hid) = alloca $ \p_err -> withFrozenCallStack
-    $ unsafeNewType
-    $ checkHID p_err "Cannot get type of attribute"
+  getTypeHDF (Attribute hid) = withFrozenCallStack
+    $ boundCheckHID "Cannot get type of attribute" Type
     $ h5a_get_type hid
-  getDataspaceIO (Attribute hid) = alloca $ \p_err -> withFrozenCallStack 
-    $ fmap Dataspace
-    $ checkHID p_err "Cannot get attribute's dataspace"
+  getDataspaceHDF (Attribute hid) = withFrozenCallStack
+    $ boundCheckHID "Cannot get attribute's dataspace" Dataspace
     $ h5a_get_space hid
   unsafeReadAll p_err (Attribute hid) ty buf = runHdf5MEither $ do
-    tid <- liftBracket $ withType ty
     contCheckHErr "Reading attribute data failed"
-      $ h5a_read hid tid (castPtr buf)
+      $ h5a_read hid (getTypeHID ty) (castPtr buf)
   unsafeWriteAll p_err (Attribute hid) ty buf = runHdf5MEither $ do
-    tid <- liftBracket $ withType ty
     contCheckHErr "Writing Attribute data failed"
-      $ h5a_write hid tid (castPtr buf)
+      $ h5a_write hid (getTypeHID ty) (castPtr buf)
 
 
 ----------------------------------------------------------------
