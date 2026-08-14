@@ -35,6 +35,14 @@ tests = testGroup "Files"
         assertEqual "Array"  arr    =<< H5.readAllAt h5 "dset1"
         assertEqual "Scalar" scalar =<< H5.readAllAt h5 "dset2"
     --
+  , testCase "Write/read SerializeDSet" $ withDir $ \dir -> do
+      let path   = dir </> "test.h5"
+          arr    = [1 .. 10] :: [Int]
+      H5.withCreateFile path H5.CreateTrunc $ \h5 -> do
+        H5.writeDatasetAt h5 "dset1" arr
+      H5.withOpenFile   path H5.OpenRO      $ \h5 -> do
+        assertEqual "Array" arr =<< H5.readDatasetAt h5 "dset1"
+    --
   , testCase "Write/read slabs" $ withDir $ \dir -> do
       let path = dir </> "test.h5"
           arr  = [0..10] :: [Int]
