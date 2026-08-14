@@ -63,18 +63,16 @@ class IsObject a => HasData a where
   getDataspaceHDF :: HasCallStack => a -> Hdf5M Dataspace
   -- | Read all content of object
   unsafeReadAll  :: HasCallStack
-                 => Ptr HID -- ^ Error pointer
-                 -> a       -- ^ Object handle
+                 => a       -- ^ Object handle
                  -> Type    -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer to read to
-                 -> IO (Either Error ())
+                 -> Hdf5M ()
   -- | Write full dataset at once
   unsafeWriteAll :: HasCallStack
-                 => Ptr HID -- ^ Error pointer
-                 -> a       -- ^ Object handle
+                 => a       -- ^ Object handle
                  -> Type    -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer with data
-                 -> IO (Either Error ())
+                 -> Hdf5M ()
 
 
 
@@ -148,14 +146,14 @@ instance HasData Dataset where
   getDataspaceHDF (Dataset hid) = withFrozenCallStack
     $ boundCheckHID "Cannot read dataset's dataspace" Dataspace
     $ h5d_get_space hid
-  unsafeReadAll p_err (Dataset hid) ty buf = runHdf5MEither $ do
-    contCheckHErr "Reading dataset data failed"
-      $ h5d_read hid (getTypeHID ty)
-          h5s_ALL h5s_ALL H5P_DEFAULT (castPtr buf)
-  unsafeWriteAll p_err (Dataset hid) ty buf = runHdf5MEither $ do
-    contCheckHErr "Writing dataset data failed"
-      $ h5d_write hid (getTypeHID ty)
-          h5s_ALL h5s_ALL H5P_DEFAULT buf
+  unsafeReadAll (Dataset hid) ty buf
+    = contCheckHErr "Reading dataset data failed"
+    $ h5d_read hid (getTypeHID ty)
+        h5s_ALL h5s_ALL H5P_DEFAULT (castPtr buf)
+  unsafeWriteAll (Dataset hid) ty buf
+    = contCheckHErr "Writing dataset data failed"
+    $ h5d_write hid (getTypeHID ty)
+        h5s_ALL h5s_ALL H5P_DEFAULT buf
 
 instance HasAttrs Dataset
 
@@ -168,12 +166,12 @@ instance HasData Attribute where
   getDataspaceHDF (Attribute hid) = withFrozenCallStack
     $ boundCheckHID "Cannot get attribute's dataspace" Dataspace
     $ h5a_get_space hid
-  unsafeReadAll p_err (Attribute hid) ty buf = runHdf5MEither $ do
-    contCheckHErr "Reading attribute data failed"
-      $ h5a_read hid (getTypeHID ty) (castPtr buf)
-  unsafeWriteAll p_err (Attribute hid) ty buf = runHdf5MEither $ do
-    contCheckHErr "Writing Attribute data failed"
-      $ h5a_write hid (getTypeHID ty) (castPtr buf)
+  unsafeReadAll (Attribute hid) ty buf
+    = contCheckHErr "Reading attribute data failed"
+    $ h5a_read hid (getTypeHID ty) (castPtr buf)
+  unsafeWriteAll (Attribute hid) ty buf
+    = contCheckHErr "Writing Attribute data failed"
+    $ h5a_write hid (getTypeHID ty) (castPtr buf)
 
 
 ----------------------------------------------------------------
