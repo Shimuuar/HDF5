@@ -177,10 +177,13 @@ class (Element (ElementOf a), IsExtent (ExtentOf a)) => ArrayLike a where
 class SerializeDSet a where
   -- | Primitive. Use 'readDatasetAt' instead.
   basicReadDSet :: Dataset -> IO a
+  -- | Arguments for dataset creation.
+  basicDSetCreate
+    :: a -> (Hdf5M Type, Hdf5M Dataspace, [Property Dataset])
   -- | Primitive. Use 'writeDatasetAt' instead.
   basicWriteDSet
     :: a
-    -> (forall ext. IsDataspace ext => ext -> Type -> [Property Dataset] -> Hdf5M Dataset)
+    -> Dataset
     -> Hdf5M ()
 
 
@@ -217,10 +220,12 @@ newtype SerializeAsArray a = SerializeAsArray a
 
 instance ArrayLike a => SerializeDSet (SerializeAsArray a) where
   basicReadDSet d = SerializeAsArray <$> readAll d
-  basicWriteDSet (SerializeAsArray a) make_dset = do
-    ty   <- typeH5 @(ElementOf a)
-    dset <- make_dset (getExtent a) ty []
-    liftIO $ writeAll dset a
+  basicDSetCreate (SerializeAsArray a) =
+    ( typeH5 @(ElementOf a)
+    , hdfCreateDataspaceFromExtent $ getExtent a
+    , []
+    )
+  basicWriteDSet (SerializeAsArray a) dset = writeAll dset a
 
 
 

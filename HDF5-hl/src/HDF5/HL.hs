@@ -387,17 +387,36 @@ createEmptyDataset
   :: (MonadIO m, MonadThrow m, IsDirectory dir, IsDataspace ext, HasCallStack)
   => dir                -- ^ Location
   -> FilePath           -- ^ Path relative to location
-  -> Type               -- ^ Element type
+  -> Hdf5M Type         -- ^ Computation to create type of element 
   -> ext                -- ^ Extent of dataset. See 'IsDataspace' for details.
   -> [Property Dataset] -- ^ Dataset creation properties
   -> m Dataset
--- FIXME: API is all wrong here! Type is only accessible inside of Hdf5M
-createEmptyDataset dir path ty ext props = runLiftHdf5M $ do
+createEmptyDataset dir path mk_ty ext props = runLiftHdf5M $ do
   c_path <- liftBracket $ withCString path
   space  <- hdfCreateDataspaceFromDSpace ext
   plist  <- hdfDatasetProps $ mconcat props
+  ty     <- mk_ty
   fmap Dataset
     $ contCheckHID ("Unable to create dataset")
+    $ h5d_create (getHID dir) c_path (getTypeHID ty) (getHID space)
+      H5P_DEFAULT
+      (getHID plist)
+      H5P_DEFAULT
+
+hdfCreateEmptyDataset
+  :: (IsDirectory dir, HasCallStack)
+  => dir                -- ^ Location
+  -> FilePath           -- ^ Path relative to location
+  -> Type               -- ^ Computation to create type of element 
+  -> Dataspace          -- ^ Extent of dataset. See 'IsDataspace' for details.
+  -> [Property Dataset] -- ^ Dataset creation properties
+  -> Hdf5M Dataset
+hdfCreateEmptyDataset dir path ty space props = do
+  c_path <- liftBracket $ withCString path
+  plist  <- hdfDatasetProps $ mconcat props
+  -- FIXME: I want here polymorphism on whether I want bounded or
+  --        unbounded stuff. Should I use runST trick?
+  boundCheckHID "Unable to create dataset" Dataset
     $ h5d_create (getHID dir) c_path (getTypeHID ty) (getHID space)
       H5P_DEFAULT
       (getHID plist)
@@ -420,10 +439,10 @@ withOpenDataset dir path = bracket (openDataset dir path) close
 --   exception.
 withCreateEmptyDataset
   :: (MonadIO m, MonadMask m, IsDirectory dir, IsDataspace ext, HasCallStack)
-  => dir       -- ^ Location
-  -> FilePath  -- ^ Path relative to location
-  -> Type      -- ^ Element type
-  -> ext       -- ^ Dataspace, that is size of dataset
+  => dir        -- ^ Location
+  -> FilePath   -- ^ Path relative to location
+  -> Hdf5M Type -- ^ Computation for creating element type
+  -> ext        -- ^ Dataspace, that is size of dataset
   -> [Property Dataset] -- ^ Dataset creation properties
   -> (Dataset -> m a)
   -> m a
@@ -448,12 +467,8 @@ writeAllAt
   -> a                  -- ^ Value to write  
   -> m ()
 writeAllAt dir path prop a
-  = undefined
-  -- FIXME: I need to figure out sane API for creating empty dataset.
-  --        How to specify types in haskell???
-  --
-  -- = withCreateEmptyDataset dir path (typeH5 @(ElementOf a)) (getExtent a) prop
-  -- $ \dset -> writeAll dset a
+  = withCreateEmptyDataset dir path (typeH5 @(ElementOf a)) (getExtent a) prop
+  $ \dset -> writeAll dset a
 
 -- | Read dataset from HDF5 using 'SerializeDSet' machinery.
 readDatasetAt
@@ -473,11 +488,12 @@ writeDatasetAt
   -> a        -- ^ Value to write to HDF5
   -> m ()
 writeDatasetAt dir path a = runLiftHdf5M $ do
-  basicWriteDSet a $ \ext ty prop ->
-    -- FIXME: I need to create some sane way of specifying type
-    undefined
-    -- withCreateEmptyDataset dir path ty ext prop action
-
+  ty    <- mk_ty
+  space <- mk_space
+  dset  <- hdfCreateEmptyDataset dir path ty space prop
+  basicWriteDSet a dset
+  where
+    (mk_ty, mk_space, prop) = basicDSetCreate a
 
 -- | Set new extent of dataspace. This function could be applied to
 --   following datasets:
