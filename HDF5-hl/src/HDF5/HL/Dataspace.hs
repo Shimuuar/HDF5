@@ -31,8 +31,6 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Maybe
 import Data.Coerce
 import Data.Functor

@@ -20,9 +20,6 @@ module HDF5.HL.Unsafe.Wrappers
   , HasData(..)
   ) where
 
-import Control.Monad.Catch
-import Control.Monad.Trans.Cont
-import Control.Monad.IO.Class
 import Foreign.Ptr
 import Foreign.Marshal
 import GHC.Stack

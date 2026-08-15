@@ -36,12 +36,8 @@ module HDF5.HL.Unsafe.Types
   ) where
 
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Cont
 import Data.Bits                  (finiteBitSize)
-import Data.IORef
 import Data.Complex
 import Data.Proxy
 import Data.Int
@@ -54,15 +50,11 @@ import Data.Vector.Fixed.Storable  qualified as FS
 import Data.Vector.Fixed.Primitive qualified as FP
 import Data.Vector.Fixed.Strict    qualified as FV
 import Data.Vector.Fixed.Mono      qualified as FM
-import Foreign.Marshal             (alloca, allocaArray, allocaArray0, withArray, peekArray,
-                                    allocaBytesAligned
-                                   )
+import Foreign.Marshal             (alloca,allocaArray0,withArray,allocaBytesAligned)
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.C.String
 import Foreign.Storable
-import System.IO.Unsafe
-import GHC.Exts        (keepAlive#)
 import GHC.Stack
 import GHC.Generics
 import GHC.TypeLits

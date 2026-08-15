@@ -39,9 +39,7 @@ import Foreign.Marshal
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.C
-import Text.Printf
 import GHC.Stack
-import GHC.Generics (Generic)
 
 import HDF5.C
 import HDF5.HL.Internal.ErrorTy
@@ -170,16 +168,16 @@ boundCheckHID msg mk ffi_call = do
   p_err <- askPErr
   r     <- liftBracket $ bracket
     (lockHDF5 (ffi_call p_err) >>= \case
-      hid | hid < (HID 0) -> pure $ Left msg
-          | otherwise     -> pure $ Right $ mk hid
+      hid | hid < (HID 0) -> pure $ Nothing
+          | otherwise     -> pure $ Just $ mk hid
     )
     (\case
-        Left{}  -> pure ()
-        Right a -> basicClose a
+        Nothing -> pure ()
+        Just  a -> basicClose a
     )
   case r of
-    Left  msg -> abort msg
-    Right a   -> pure a
+    Nothing -> abort msg
+    Just a  -> pure a
 
 
 

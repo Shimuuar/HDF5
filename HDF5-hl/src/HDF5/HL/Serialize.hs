@@ -21,7 +21,6 @@ module HDF5.HL.Serialize
   ) where
 
 import Control.Monad
-import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 import Data.Functor.Identity
@@ -38,10 +37,8 @@ import Data.Vector.Fixed.Boxed     qualified as FB
 import Data.Vector.Fixed.Storable  qualified as FS
 import Data.Vector.Fixed.Primitive qualified as FP
 import Data.Vector.Fixed.Strict    qualified as FV
-import Control.Monad.Trans.Cont
 import Foreign.Ptr
 import Foreign.Storable
-import Foreign.Marshal
 import Foreign.ForeignPtr
 import Data.Int
 import Data.Word

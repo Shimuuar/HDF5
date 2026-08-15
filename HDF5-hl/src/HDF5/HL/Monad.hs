@@ -10,7 +10,6 @@ module HDF5.HL.Monad
   , liftBracket
   ) where
 
-import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Trans.Cont hiding (cont)
 import Control.Monad.IO.Class

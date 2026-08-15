@@ -7,7 +7,6 @@ import Text.Printf
 import GHC.Generics      (Generic)
 import GHC.Stack
 
-import HDF5.C.Types
 
 -- | Error during HDF5 call
 data Error where
