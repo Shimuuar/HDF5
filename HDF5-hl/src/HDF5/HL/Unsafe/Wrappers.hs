@@ -22,7 +22,6 @@ module HDF5.HL.Unsafe.Wrappers
 
 import Data.Coerce
 import Foreign.Ptr
-import Foreign.Marshal
 import GHC.Stack
 
 import HDF5.C
@@ -185,31 +184,37 @@ instance IsObject (PropertyHID s p) where
 ----------------------------------------------------------------
 
 instance Closable File where
-  basicClose (File hid) =  alloca $ \p_err ->
-      checkHErr p_err "Failed to close File"
+  basicClose (File hid)
+    = runHdf5M
+    $ contCheckHErr "Failed to close File"
     $ h5f_close hid
 
 instance Closable Dataset where
-  basicClose (Dataset hid) =  alloca $ \p_err ->
-      checkHErr p_err "Failed to close Dataset"
+  basicClose (Dataset hid)
+    = runHdf5M
+    $ contCheckHErr "Failed to close Dataset"
     $ h5d_close hid
 
 instance Closable Attribute where
-  basicClose (Attribute hid) =  alloca $ \p_err ->
-      checkHErr p_err "Failed to close Attribute"
+  basicClose (Attribute hid)
+    = runHdf5M
+    $ contCheckHErr "Failed to close Attribute"
     $ h5a_close hid
 
 instance Closable (Dataspace s) where
-  basicClose (Dataspace hid) = alloca $ \p_err ->
-      checkHErr p_err "Failed to close Dataspace"
+  basicClose (Dataspace hid)
+    = runHdf5M
+    $ contCheckHErr "Failed to close Dataspace"
     $ h5s_close hid
 
 instance Closable Group where
-  basicClose (Group hid) = alloca $ \p_err ->
-      checkHErr p_err "Failed to close Group"
+  basicClose (Group hid)
+    = runHdf5M
+    $ contCheckHErr "Failed to close Group"
     $ h5g_close hid
 
 instance Closable (PropertyHID s p) where
-  basicClose (PropertyHID hid) = alloca $ \p_err ->
-      checkHErr p_err "Failed to close PropertyHID"
+  basicClose (PropertyHID hid)
+    = runHdf5M
+    $ contCheckHErr "Failed to close PropertyHID"
     $ h5p_close hid
