@@ -35,8 +35,6 @@ module HDF5.HL.Attribute
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Catch
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Cont
 import Data.Int
 import Data.Word
 import Data.Coerce
@@ -56,7 +54,6 @@ import Data.Vector.Primitive       qualified as VP
 import Data.Proxy
 import Foreign.Storable
 import Foreign.C.String
-import Foreign.Marshal
 import GHC.Stack
 import GHC.Generics
 import GHC.TypeLits
@@ -77,21 +74,20 @@ import HDF5.C
 -- | Open attribute on group or dataset. Returns nothing if dataset
 --   does not exists.
 openAttrMay
-  :: (HasAttrs d, MonadIO m, HasCallStack)
+  :: (HasAttrs d, MonadIO m, MonadThrow m, HasCallStack)
   => d      -- ^ Dataset or group
   -> String -- ^ Attribute name
   -> m (Maybe Attribute)
-openAttrMay (getHID -> hid) path = liftIO $ withFrozenCallStack $ evalContT $ do
-  p_err <- ContT $ alloca
-  c_str <- ContT $ withCString path
-  lift $ do
-    exists <- checkHTri p_err ("Cannot check whether attribute " ++ path ++ " exists")
-            $ h5a_exists hid c_str
-    case exists of
-      False -> pure Nothing
-      True  -> Just . Attribute
-            <$> ( checkHID p_err ("Cannot open attribute " ++ path)
-                $ h5a_open hid c_str H5P_DEFAULT)
+openAttrMay (getHID -> hid) path = withFrozenCallStack $ runLiftHdf5M $ do
+  c_str  <- liftBracket $ withCString path
+  exists <- contCheckHTri ("Cannot check whether attribute " ++ path ++ " exists")
+          $ h5a_exists hid c_str
+  case exists of
+    False -> pure Nothing
+    True  -> do
+      a <- contCheckHID ("Cannot open attribute " ++ path)
+         $ h5a_open hid c_str H5P_DEFAULT
+      pure $! Just $ Attribute a
 
 -- | Bracket variant of 'openAttrMay'.
 withAttrMay
