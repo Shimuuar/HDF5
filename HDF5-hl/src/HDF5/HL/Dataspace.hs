@@ -336,10 +336,10 @@ runParserDim uncons s0 (ParserDim fun) = fmap snd <$> fun uncons s0
 
 
 runParseFromDataspace
-  :: (IsDataspace a, MonadIO m, MonadThrow m)
+  :: (IsDataspace a)
   => Dataspace
-  -> m (Either DataspaceParseError a)
-runParseFromDataspace (getHID -> hid) = runLiftHdf5M $ do
+  -> Hdf5M s (Either DataspaceParseError a)
+runParseFromDataspace (getHID -> hid) = do
   contUnchecked (h5s_get_simple_extent_type hid) >>= \case
     H5S_NULL   -> pure $ case decodeNullDataspace of
       Just d  -> Right d
@@ -452,7 +452,7 @@ dataspaceRank (Dataspace hid) = do
 -- | Parse extent of dataspace. Returns @Nothing@ if dataspace doens't
 --   match expected shape.
 dataspaceExtent
-  :: (MonadIO m, IsDataspace ext, HasCallStack)
+  :: (IsDataspace ext, HasCallStack)
   => Dataspace
-  -> m (Either DataspaceParseError ext)
-dataspaceExtent spc = liftIO $ runParseFromDataspace spc
+  -> Hdf5M s (Either DataspaceParseError ext)
+dataspaceExtent spc = runParseFromDataspace spc

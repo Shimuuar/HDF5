@@ -70,7 +70,7 @@ readAll
 readAll dset = runLiftHdf5M $ do
   spc_file <- getDataspaceHDF dset
   ty_a     <- typeH5 @(ElementOf a)
-  ext      <- dataspaceExtent @_ @(ExtentOf a) spc_file >>= \case
+  ext      <- dataspaceExtent @(ExtentOf a) spc_file >>= \case
     Left  e -> throwM e -- FIXME: wrong throwing method!
     Right x -> pure x
   (ptr,mkA) <- basicReadFromSlab ext

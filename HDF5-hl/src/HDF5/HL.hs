@@ -188,7 +188,7 @@ readDataspace
 readDataspace dset = liftIO $ runHdf5M $ do
   -- FIXME: Error handling is all wrong here!
   dspace <- getDataspaceHDF dset
-  liftIO $ either throwM pure =<< runParseFromDataspace dspace
+  either throwM pure =<< runParseFromDataspace dspace
 
 
 
@@ -537,4 +537,4 @@ extent
   => a -> m (Either DataspaceParseError ext)
 extent a = runLiftHdf5M $ do
   dspace <- getDataspaceHDF a
-  liftIO $ runParseFromDataspace dspace
+  runParseFromDataspace dspace
