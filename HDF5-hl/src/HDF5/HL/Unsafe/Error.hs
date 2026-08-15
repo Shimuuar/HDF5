@@ -11,11 +11,6 @@ module HDF5.HL.Unsafe.Error
     -- * API
   , Closable(..)
   , decodeError
-  , checkHID
-  , checkHErr
-  , checkHTri
-  , checkCInt
-  , checkCLLong
     -- ** Continuations
   , contCheckHID
   , boundCheckHID
@@ -113,44 +108,6 @@ decodeError p_err msg = evalContT $ do
 --   class which allows to use same function to all of them.
 class Closable a where
   basicClose :: HasCallStack => a -> IO ()
-
-
-checkHID :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HID) -> IO HID
-{-# INLINE checkHID #-}
-checkHID p_err msg action =
-  lockHDF5 (action p_err) >>= \case
-    hid | hid < (HID 0) -> throwM =<< decodeError p_err msg
-        | otherwise     -> pure hid
-
-checkHErr :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HErr) -> IO ()
-{-# INLINE checkHErr #-}
-checkHErr p_err msg action =
-  lockHDF5 (action p_err) >>= \case
-    HOK -> pure ()
-    _   -> throwM =<< decodeError p_err msg
-
-checkCInt :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO CInt) -> IO CInt
-{-# INLINE checkCInt #-}
-checkCInt p_err msg action =
-  lockHDF5 (action p_err) >>= \case
-    n | n < 0     -> throwM =<< decodeError p_err msg
-      | otherwise -> pure n 
-
-checkCLLong :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HSSize) -> IO HSSize
-{-# INLINE checkCLLong #-}
-checkCLLong p_err msg action =
-  lockHDF5 (action p_err) >>= \case
-    n | n < 0     -> throwM =<< liftIO (decodeError p_err msg)
-      | otherwise -> pure n 
-
-checkHTri :: HasCallStack => Ptr HID -> String -> (Ptr HID -> HDF5IO HTri) -> IO Bool
-{-# INLINE checkHTri #-}
-checkHTri p_err msg action =
-  lockHDF5 (action p_err) >>= \case
-    HFalse -> pure False
-    HTrue  -> pure True
-    HFail  -> throwM =<< decodeError p_err msg
-
 
 
 contCheckHID :: String -> (Ptr HID -> HDF5IO HID) -> Hdf5M s HID
