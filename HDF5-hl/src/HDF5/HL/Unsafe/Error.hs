@@ -1,5 +1,4 @@
 {-# LANGUAGE RecordWildCards #-}
-
 -- |
 module HDF5.HL.Unsafe.Error
   ( -- * Exception data type

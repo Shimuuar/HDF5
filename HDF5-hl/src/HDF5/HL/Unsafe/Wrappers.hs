@@ -20,6 +20,7 @@ module HDF5.HL.Unsafe.Wrappers
   , HasData(..)
   ) where
 
+import Data.Coerce
 import Foreign.Ptr
 import Foreign.Marshal
 import GHC.Stack
@@ -40,10 +41,6 @@ class IsObject a where
   getHID        :: a -> HID
   unsafeFromHID :: HID -> a
 
-instance IsObject HID where
-  getHID        = id
-  unsafeFromHID = id
-
 
 -- | HDF5 entities that could be used in context where group is
 --   expected: groups, files (root group is used).
@@ -57,7 +54,7 @@ class IsObject a => HasData a where
   -- | Get type of object
   getTypeHDF      :: HasCallStack => a -> Hdf5M s (Type s)
   -- | Get dataspace associated with object
-  getDataspaceHDF :: HasCallStack => a -> Hdf5M s (Dataspace s) 
+  getDataspaceHDF :: HasCallStack => a -> Hdf5M s (Dataspace s)
   -- | Read all content of object
   unsafeReadAll  :: HasCallStack
                  => a       -- ^ Object handle
@@ -81,12 +78,10 @@ class IsObject a => HasData a where
 --   directory of a file when group is expected. See 'IsDirectory'.
 newtype File = File HID
   deriving stock (Show,Eq,Ord)
-  deriving newtype IsObject
 
 -- | Handle for working with group (directory).
 newtype Group = Group HID
   deriving stock (Show,Eq,Ord)
-  deriving newtype IsObject
 
 -- | Handle for dataset. It's dense N-dimensional array of
 --   elements. Dimensions of array are called 'Dataspace' in HDF5
@@ -96,13 +91,11 @@ newtype Group = Group HID
 --   enumerations.
 newtype Dataset = Dataset HID
   deriving stock (Show,Eq,Ord)
-  deriving newtype IsObject
 
 -- | Handle for attribute attached to file, group, dataset. Attribute
 --   is named value: scalar or small array.
 newtype Attribute = Attribute HID
   deriving stock (Show,Eq,Ord)
-  deriving newtype IsObject
 
 -- | Handle for dataspace. It defines number of dimensions and size of
 --   each dimension for datasets and attributes. Each dataspace has
@@ -116,30 +109,37 @@ newtype Attribute = Attribute HID
 --   values to dataspaces and parse dimension data back.
 newtype Dataspace s = Dataspace HID
   deriving stock (Show,Eq,Ord)
-  deriving newtype IsObject
 
 -- | Property list for values of type @p@.
 newtype PropertyHID s p = PropertyHID HID
   deriving stock (Show,Eq,Ord)
-  deriving newtype IsObject
 
 ----------------
 
+instance IsObject File where
+  getHID        = coerce
+  unsafeFromHID = coerce
 instance IsDirectory File
 instance HasAttrs    File
 
 ----------------
 
+instance IsObject Group where
+  getHID        = coerce
+  unsafeFromHID = coerce
 instance IsDirectory Group
 instance HasAttrs    Group
 
 ----------------
 
-instance HasData Dataset where
+instance IsObject Dataset where
+  getHID        = coerce
+  unsafeFromHID = coerce
+instance HasAttrs Dataset
+instance HasData  Dataset where
   getTypeHDF (Dataset hid) = withFrozenCallStack
     $ boundCheckHID "Cannot get type of dataset" Type
     $ h5d_get_type hid
-  -- FIXME: Leaks!
   getDataspaceHDF (Dataset hid) = withFrozenCallStack
     $ boundCheckHID "Cannot read dataset's dataspace" Dataspace
     $ h5d_get_space hid
@@ -152,10 +152,12 @@ instance HasData Dataset where
     $ h5d_write hid (getTypeHID ty)
         h5s_ALL h5s_ALL H5P_DEFAULT buf
 
-instance HasAttrs Dataset
 
 ----------------
 
+instance IsObject Attribute where
+  getHID        = coerce
+  unsafeFromHID = coerce
 instance HasData Attribute where
   getTypeHDF (Attribute hid) = withFrozenCallStack
     $ boundCheckHID "Cannot get type of attribute" Type
@@ -169,6 +171,15 @@ instance HasData Attribute where
   unsafeWriteAll (Attribute hid) ty buf
     = contCheckHErr "Writing Attribute data failed"
     $ h5a_write hid (getTypeHID ty) (castPtr buf)
+
+
+instance IsObject (Dataspace s) where
+  getHID        = coerce
+  unsafeFromHID = coerce
+
+instance IsObject (PropertyHID s p) where
+  getHID        = coerce
+  unsafeFromHID = coerce
 
 
 ----------------------------------------------------------------
@@ -202,4 +213,3 @@ instance Closable (PropertyHID s p) where
   basicClose (PropertyHID hid) = alloca $ \p_err ->
       checkHErr p_err "Failed to close PropertyHID"
     $ h5p_close hid
-
