@@ -154,15 +154,15 @@ import Foreign.Ptr
 import Foreign.Storable
 import GHC.Stack
 
+import HDF5.HL.Dataspace
+import HDF5.HL.Internal.Encoding
+import HDF5.HL.Internal.Enum
+import HDF5.HL.Monad
 import HDF5.HL.Serialize
+import HDF5.HL.Unsafe.Error
+import HDF5.HL.Unsafe.Property
 import HDF5.HL.Unsafe.Types
 import HDF5.HL.Unsafe.Wrappers
-import HDF5.HL.Unsafe.Error
-import HDF5.HL.Unsafe.Enum
-import HDF5.HL.Dataspace
-import HDF5.HL.Unsafe.Property
-import HDF5.HL.Unsafe.Encoding
-import HDF5.HL.Monad
 import HDF5.C
 import Prelude hiding (read,readIO)
 

@@ -58,9 +58,9 @@ Library
         HDF5.HL.Unsafe.Types
         HDF5.HL.Unsafe.Wrappers
   Other-modules:
-        HDF5.HL.Unsafe.Encoding
-        HDF5.HL.Unsafe.Enum
-        HDF5.HL.Unsafe.ErrorTy
+        HDF5.HL.Internal.Encoding
+        HDF5.HL.Internal.Enum
+        HDF5.HL.Internal.ErrorTy
 
 Test-suite HDF5-hl-tests
   type:             exitcode-stdio-1.0

@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 -- |
 -- Mapping of C enums from HDF to haskell data types
-module HDF5.HL.Unsafe.Enum
+module HDF5.HL.Internal.Enum
   ( -- * Type classes
     HDF5Enum(..)
   , HDF5Param(..)

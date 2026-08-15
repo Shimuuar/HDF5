@@ -44,7 +44,7 @@ import GHC.Stack
 import GHC.Generics (Generic)
 
 import HDF5.C
-import HDF5.HL.Unsafe.ErrorTy
+import HDF5.HL.Internal.ErrorTy
 import HDF5.HL.Monad
 
 ----------------------------------------------------------------

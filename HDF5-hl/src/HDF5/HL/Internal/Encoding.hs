@@ -1,7 +1,7 @@
 -- |
 -- Function for writing haskell data types into C buffers in order to
 -- pass them into HDF5. As unsafe as usual C interactions go
-module HDF5.HL.Unsafe.Encoding
+module HDF5.HL.Internal.Encoding
   ( withEncodedExtent
   , withEncodedDataspace
   ) where

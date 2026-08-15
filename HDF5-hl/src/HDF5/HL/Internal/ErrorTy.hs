@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 -- |
-module HDF5.HL.Unsafe.ErrorTy where
+module HDF5.HL.Internal.ErrorTy where
 
 import Control.Exception
 import Text.Printf
