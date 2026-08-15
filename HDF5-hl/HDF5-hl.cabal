@@ -58,6 +58,7 @@ Library
         HDF5.HL.Unsafe.Types
         HDF5.HL.Unsafe.Wrappers
   Other-modules:
+        HDF5.HL.Internal.Classes
         HDF5.HL.Internal.Encoding
         HDF5.HL.Internal.Enum
         HDF5.HL.Internal.Check

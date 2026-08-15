@@ -61,6 +61,7 @@ import GHC.TypeLits
 import GHC.ForeignPtr  (mallocPlainForeignPtrAlignedBytes)
 
 import HDF5.HL.Internal.Check
+import HDF5.HL.Internal.Classes
 import HDF5.HL.Monad
 import HDF5.C
 

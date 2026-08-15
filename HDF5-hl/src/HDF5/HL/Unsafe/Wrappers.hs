@@ -27,6 +27,7 @@ import GHC.Stack
 import HDF5.C
 import HDF5.HL.Internal.Check
 import HDF5.HL.Internal.Enum
+import HDF5.HL.Internal.Classes
 import HDF5.HL.Unsafe.Types
 import HDF5.HL.Monad
 
@@ -34,19 +35,6 @@ import HDF5.HL.Monad
 ----------------------------------------------------------------
 -- Type classes
 ----------------------------------------------------------------
-
--- | Some HDF5 object.
-class IsObject a where
-  getHID        :: a -> HID
-  unsafeFromHID :: HID -> a
-
-
--- | HDF5 entities that could be used in context where group is
---   expected: groups, files (root group is used).
-class IsObject a => IsDirectory a
-
--- | Objects which could have attributes attached, such as files and groups
-class IsObject a => HasAttrs a
 
 -- | HDF5 entities which contains data that could be
 class IsObject a => HasData a where
