@@ -97,7 +97,7 @@ instance Closable Type where
       _ <- lockHDF5 $ h5t_close tid p_err
       return ()
 
-showType :: Type -> Hdf5M String
+showType :: Type -> Hdf5M s String
 showType (getTypeHID -> tid) = do
   p_sz  <- liftBracket $ alloca
   _     <- contCheckHErr "Can't show type"
@@ -110,7 +110,7 @@ showType (getTypeHID -> tid) = do
 
 
 -- | Compute size of HDF5 type.
-sizeOfH5 :: HasCallStack => Type -> Hdf5M Int
+sizeOfH5 :: HasCallStack => Type -> Hdf5M s Int
 sizeOfH5 ty = withFrozenCallStack $ do
   sz <- contCheckCSize "Cannot compute size of data type" 
       $ h5t_get_size (getTypeHID ty)
@@ -190,7 +190,7 @@ tyU64BE = Native h5t_STD_U64BE
 --     _ -> pure Nothing
 
 
-makeArray :: Type -> [Int] -> Hdf5M Type
+makeArray :: Type -> [Int] -> Hdf5M s Type
 makeArray ty dim = do
   p_dim <- liftBracket $ withArray (fromIntegral <$> dim)
   boundCheckHID "Cannot create array type" Type
@@ -199,7 +199,7 @@ makeArray ty dim = do
     n = fromIntegral $ length dim
 
 -- | Create record with named fields.
-makePackedRecord :: HasCallStack => [(String,Type)] -> Hdf5M Type
+makePackedRecord :: HasCallStack => [(String,Type)] -> Hdf5M s Type
 makePackedRecord fields = do
   -- Compute size and offsets of fields
   let computeOff !off []             = pure (off,[])
@@ -219,7 +219,7 @@ makePackedRecord fields = do
 
 
 -- | Make enumeration data type which is based on underlying type @a@.
-makeEnumeration :: forall a. (Element a, HasCallStack) => [(String,a)] -> Hdf5M Type
+makeEnumeration :: forall a s. (Element a, HasCallStack) => [(String,a)] -> Hdf5M s Type
 makeEnumeration elems = do
   p_val    <- liftBracket allocaElement
   base_ty  <- typeH5 @a
@@ -244,7 +244,7 @@ makeEnumeration elems = do
 --   from buffer using 'Storable'.
 class Element a where
   -- | HDF5 type of element.
-  typeH5 :: Hdf5M Type
+  typeH5 :: Hdf5M s Type
   -- | Compute size of element. It must be same as @sizeOfH5 (typeH5 \@a)@
   fastSizeOfH5 :: Int
   -- | Alignment requirements
@@ -436,7 +436,7 @@ instance ( Generic a
   {-# INLINE pokeH5       #-}
 
 class GRecElement f where
-  gtypeH5 :: Hdf5M [(String,Type)]
+  gtypeH5 :: Hdf5M s [(String,Type)]
   gfastSizeOfH5 :: Int
   galignmentH5 :: Int
   gpeekH5 :: Ptr () -> Int -> IO (f p, Int)

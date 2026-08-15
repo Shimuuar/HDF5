@@ -58,21 +58,21 @@ class IsObject a => HasAttrs a
 -- | HDF5 entities which contains data that could be
 class IsObject a => HasData a where
   -- | Get type of object
-  getTypeHDF      :: HasCallStack => a -> Hdf5M Type
+  getTypeHDF      :: HasCallStack => a -> Hdf5M s Type
   -- | Get dataspace associated with object
-  getDataspaceHDF :: HasCallStack => a -> Hdf5M Dataspace
+  getDataspaceHDF :: HasCallStack => a -> Hdf5M s Dataspace
   -- | Read all content of object
   unsafeReadAll  :: HasCallStack
                  => a       -- ^ Object handle
                  -> Type    -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer to read to
-                 -> Hdf5M ()
+                 -> Hdf5M s ()
   -- | Write full dataset at once
   unsafeWriteAll :: HasCallStack
                  => a       -- ^ Object handle
                  -> Type    -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer with data
-                 -> Hdf5M ()
+                 -> Hdf5M s ()
 
 
 

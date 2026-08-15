@@ -25,7 +25,7 @@ import HDF5.HL.Monad
 -- | Encode rank and dimensions of an array.
 withEncodedExtent
   :: ((Word64 -> DSpaceWriter) -> DSpaceWriter)
-  -> Hdf5M (Int, Ptr HSize)
+  -> Hdf5M s (Int, Ptr HSize)
 withEncodedExtent encoder = liftIO $ do
   allocaArray maxRank $ \ptr -> do
     rank <- write ptr maxRank 0
@@ -35,7 +35,7 @@ withEncodedExtent encoder = liftIO $ do
 -- | Encode rank, dimensions and maximum dimensions of an array
 withEncodedDataspace
   :: ((Word64 -> Word64 -> DSpaceWriter) -> DSpaceWriter)
-  -> Hdf5M (Int, Ptr HSize, Ptr HSize)
+  -> Hdf5M s (Int, Ptr HSize, Ptr HSize)
 withEncodedDataspace encoder = liftIO $ do
   allocaArray (maxRank * 2) $ \ptr -> do
     rank <- write ptr maxRank 0

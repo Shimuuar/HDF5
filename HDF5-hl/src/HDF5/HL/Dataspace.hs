@@ -382,7 +382,7 @@ runParseFromDataspace (getHID -> hid) = runLiftHdf5M $ do
 hdfCreateDataspaceFromExtent
   :: IsExtent dim
   => dim     -- ^ Extent of dataspace
-  -> Hdf5M Dataspace
+  -> Hdf5M s Dataspace
 hdfCreateDataspaceFromExtent dim = do
   (rank,ptr) <- withEncodedExtent $ encodeExtent dim
   boundCheckHID "Unable to create simple dataspace" Dataspace
@@ -393,7 +393,7 @@ hdfCreateDataspaceFromExtent dim = do
 hdfCreateDataspaceFromDSpace
   :: IsDataspace dim
   => dim -- ^ Extent of dataspace
-  -> Hdf5M Dataspace
+  -> Hdf5M s Dataspace
 hdfCreateDataspaceFromDSpace dim = do
   case encodeDataspace dim of
     Nothing -> boundCheckHID "Unable to create dataspace with NULL extent" Dataspace
@@ -438,7 +438,7 @@ setSlabSelection (Dataspace hid) off sz = runLiftHdf5M $ do
 dataspaceRank
   :: (HasCallStack)
   => Dataspace
-  -> Hdf5M (Maybe Int)
+  -> Hdf5M s (Maybe Int)
 dataspaceRank (Dataspace hid) = do
   contUnchecked (h5s_get_simple_extent_type hid) >>= \case
     H5S_NULL   -> pure   Nothing

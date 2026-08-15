@@ -32,7 +32,7 @@ import HDF5.HL.Monad
 -- | Property lists for values of type p. This data type is used to
 --   specify properties of objects at their creation time.
 data Property p = NoProperty
-                | Property (PropertyHID p -> Hdf5M ())
+                | Property (forall s. PropertyHID p -> Hdf5M s ())
 
 instance Semigroup (Property p) where
   NoProperty <> p          = p
@@ -48,7 +48,7 @@ instance Monoid (Property p) where
 ----------------------------------------------------------------
 
 -- | Allocate property list. It will be automatically destroyed 
-hdfDatasetProps :: Property Dataset -> Hdf5M (PropertyHID Dataset)
+hdfDatasetProps :: Property Dataset -> Hdf5M s (PropertyHID Dataset)
 hdfDatasetProps prop = case prop of  
   NoProperty -> pure $ PropertyHID H5P_DEFAULT
   Property f -> do

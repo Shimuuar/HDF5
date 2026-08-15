@@ -156,7 +156,7 @@ checkHTri p_err msg action =
 
 
 
-contCheckHID :: String -> (Ptr HID -> HDF5IO HID) -> Hdf5M HID
+contCheckHID :: String -> (Ptr HID -> HDF5IO HID) -> Hdf5M s HID
 {-# INLINE contCheckHID #-}
 contCheckHID msg action = do
   p_err <- askPErr
@@ -164,7 +164,7 @@ contCheckHID msg action = do
     hid | hid < (HID 0) -> abort msg
         | otherwise     -> pure hid
 
-boundCheckHID :: Closable a => String -> (HID -> a) -> (Ptr HID -> HDF5IO HID) -> Hdf5M a
+boundCheckHID :: Closable a => String -> (HID -> a) -> (Ptr HID -> HDF5IO HID) -> Hdf5M s a
 {-# INLINE boundCheckHID #-}
 boundCheckHID msg mk ffi_call = do
   p_err <- askPErr
@@ -184,7 +184,7 @@ boundCheckHID msg mk ffi_call = do
 
 
 
-contCheckHErr :: String -> (Ptr HID -> HDF5IO HErr) -> Hdf5M ()
+contCheckHErr :: String -> (Ptr HID -> HDF5IO HErr) -> Hdf5M s ()
 {-# INLINE contCheckHErr #-}
 contCheckHErr msg action = do
   p_err <- askPErr
@@ -192,7 +192,7 @@ contCheckHErr msg action = do
     HOK -> pure ()
     _   -> abort msg
 
-contCheckCInt :: String -> (Ptr HID -> HDF5IO CInt) -> Hdf5M CInt
+contCheckCInt :: String -> (Ptr HID -> HDF5IO CInt) -> Hdf5M s CInt
 {-# INLINE contCheckCInt #-}
 contCheckCInt msg action = do
   p_err <- askPErr
@@ -200,7 +200,7 @@ contCheckCInt msg action = do
     n | n < 0     -> abort msg
       | otherwise -> pure n
 
-contCheckCSize :: String -> (Ptr HID -> HDF5IO CSize) -> Hdf5M CSize
+contCheckCSize :: String -> (Ptr HID -> HDF5IO CSize) -> Hdf5M s CSize
 {-# INLINE contCheckCSize #-}
 contCheckCSize msg action = do
   p_err <- askPErr
@@ -208,7 +208,7 @@ contCheckCSize msg action = do
     n | n < 0     -> abort msg
       | otherwise -> pure n
 
-contCheckCLLong :: String -> (Ptr HID -> HDF5IO HSSize) -> Hdf5M HSSize
+contCheckCLLong :: String -> (Ptr HID -> HDF5IO HSSize) -> Hdf5M s HSSize
 {-# INLINE contCheckCLLong #-}
 contCheckCLLong msg action = do
   p_err <- askPErr
@@ -216,7 +216,7 @@ contCheckCLLong msg action = do
     n | n < 0     -> abort msg
       | otherwise -> pure n
 
-contCheckHTri :: String -> (Ptr HID -> HDF5IO HTri) -> Hdf5M Bool
+contCheckHTri :: String -> (Ptr HID -> HDF5IO HTri) -> Hdf5M s Bool
 {-# INLINE contCheckHTri #-}
 contCheckHTri msg action = do
   p_err <- askPErr
@@ -225,14 +225,14 @@ contCheckHTri msg action = do
     HTrue  -> pure True
     HFail  -> abort msg
 
-contUnchecked :: (Ptr HID -> HDF5IO a) -> Hdf5M a
+contUnchecked :: (Ptr HID -> HDF5IO a) -> Hdf5M s a
 {-# INLINE contUnchecked #-}
 contUnchecked action = do
   p_err <- askPErr
   liftIO (lockHDF5 $ action p_err)
 
 
-abort :: String -> Hdf5M a
+abort :: String -> Hdf5M s a
 abort msg = do
   p_err <- askPErr
   throwHdf5 =<< liftIO (decodeError p_err msg)

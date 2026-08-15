@@ -385,11 +385,11 @@ openDataset dir path = runLiftHdf5M $ do
 --   must be closed by call to 'close'.
 createEmptyDataset
   :: (MonadIO m, MonadThrow m, IsDirectory dir, IsDataspace ext, HasCallStack)
-  => dir                -- ^ Location
-  -> FilePath           -- ^ Path relative to location
-  -> Hdf5M Type         -- ^ Computation to create type of element 
-  -> ext                -- ^ Extent of dataset. See 'IsDataspace' for details.
-  -> [Property Dataset] -- ^ Dataset creation properties
+  => dir                      -- ^ Location
+  -> FilePath                 -- ^ Path relative to location
+  -> (forall s. Hdf5M s Type) -- ^ Computation to create type of element 
+  -> ext                      -- ^ Extent of dataset. See 'IsDataspace' for details.
+  -> [Property Dataset]       -- ^ Dataset creation properties
   -> m Dataset
 createEmptyDataset dir path mk_ty ext props = runLiftHdf5M $ do
   c_path <- liftBracket $ withCString path
@@ -410,7 +410,7 @@ hdfCreateEmptyDataset
   -> Type               -- ^ Computation to create type of element 
   -> Dataspace          -- ^ Extent of dataset. See 'IsDataspace' for details.
   -> [Property Dataset] -- ^ Dataset creation properties
-  -> Hdf5M Dataset
+  -> Hdf5M s Dataset
 hdfCreateEmptyDataset dir path ty space props = do
   c_path <- liftBracket $ withCString path
   plist  <- hdfDatasetProps $ mconcat props
@@ -439,11 +439,11 @@ withOpenDataset dir path = bracket (openDataset dir path) close
 --   exception.
 withCreateEmptyDataset
   :: (MonadIO m, MonadMask m, IsDirectory dir, IsDataspace ext, HasCallStack)
-  => dir        -- ^ Location
-  -> FilePath   -- ^ Path relative to location
-  -> Hdf5M Type -- ^ Computation for creating element type
-  -> ext        -- ^ Dataspace, that is size of dataset
-  -> [Property Dataset] -- ^ Dataset creation properties
+  => dir                      -- ^ Location
+  -> FilePath                 -- ^ Path relative to location
+  -> (forall s. Hdf5M s Type) -- ^ Computation for creating element type
+  -> ext                      -- ^ Dataspace, that is size of dataset
+  -> [Property Dataset]       -- ^ Dataset creation properties
   -> (Dataset -> m a)
   -> m a
 withCreateEmptyDataset dir path ty ext props = bracket

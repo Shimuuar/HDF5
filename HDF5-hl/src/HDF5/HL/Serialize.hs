@@ -154,7 +154,7 @@ class (Element (ElementOf a), IsExtent (ExtentOf a)) => ArrayLike a where
   --   functions.
   basicWriteToSlab
     :: a                         -- ^ Value to pass
-    -> Hdf5M (Ptr (ElementOf a)) -- ^ Callback consuming buffer
+    -> Hdf5M s (Ptr (ElementOf a)) -- ^ Callback consuming buffer
   -- | Primitive for reading HDF5 arrays. Function returns pointer to
   --   buffer for data to read into and IO function for converting it
   --   into result type.
@@ -164,7 +164,7 @@ class (Element (ElementOf a), IsExtent (ExtentOf a)) => ArrayLike a where
   --   it so it could be filled directly.
   basicReadFromSlab
     :: ExtentOf a -- ^ Size of an array
-    -> Hdf5M (Ptr (ElementOf a), IO a)
+    -> Hdf5M s (Ptr (ElementOf a), IO a)
   -- | Compute size of an array
   getExtent :: a -> ExtentOf a
 
@@ -179,12 +179,12 @@ class SerializeDSet a where
   basicReadDSet :: Dataset -> IO a
   -- | Arguments for dataset creation.
   basicDSetCreate
-    :: a -> (Hdf5M Type, Hdf5M Dataspace, [Property Dataset])
+    :: a -> (Hdf5M s Type, Hdf5M s Dataspace, [Property Dataset])
   -- | Primitive. Use 'writeDatasetAt' instead.
   basicWriteDSet
     :: a
     -> Dataset
-    -> Hdf5M ()
+    -> Hdf5M s ()
 
 
 ----------------------------------------------------------------
