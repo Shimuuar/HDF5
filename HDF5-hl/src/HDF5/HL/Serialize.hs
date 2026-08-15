@@ -46,9 +46,9 @@ import GHC.Stack
 
 import HDF5.HL.Unsafe.Types
 import HDF5.HL.Unsafe.Wrappers
-import HDF5.HL.Unsafe.Error
 import HDF5.HL.Dataspace
 import HDF5.HL.Unsafe.Property
+import HDF5.HL.Internal.Check
 import HDF5.HL.Vector
 import HDF5.HL.Monad
 import HDF5.C

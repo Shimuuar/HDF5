@@ -60,7 +60,7 @@ Library
   Other-modules:
         HDF5.HL.Internal.Encoding
         HDF5.HL.Internal.Enum
-        HDF5.HL.Internal.ErrorTy
+        HDF5.HL.Internal.Check
 
 Test-suite HDF5-hl-tests
   type:             exitcode-stdio-1.0

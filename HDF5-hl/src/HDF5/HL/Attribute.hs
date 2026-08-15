@@ -61,6 +61,7 @@ import GHC.TypeLits
 import HDF5.HL.Unsafe.Types
 import HDF5.HL.Unsafe.Wrappers
 import HDF5.HL.Unsafe.Error
+import HDF5.HL.Internal.Check
 import HDF5.HL.Serialize
 import HDF5.HL.Dataspace
 import HDF5.HL.Vector

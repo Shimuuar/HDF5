@@ -25,8 +25,8 @@ import Foreign.Ptr
 import GHC.Stack
 
 import HDF5.C
+import HDF5.HL.Internal.Check
 import HDF5.HL.Internal.Enum
-import HDF5.HL.Unsafe.Error
 import HDF5.HL.Unsafe.Types
 import HDF5.HL.Monad
 

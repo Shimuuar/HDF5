@@ -157,6 +157,7 @@ import GHC.Stack
 import HDF5.HL.Dataspace
 import HDF5.HL.Internal.Encoding
 import HDF5.HL.Internal.Enum
+import HDF5.HL.Internal.Check
 import HDF5.HL.Monad
 import HDF5.HL.Serialize
 import HDF5.HL.Unsafe.Error

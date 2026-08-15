@@ -44,6 +44,7 @@ import GHC.Stack
 import HDF5.HL.Unsafe.Wrappers
 import HDF5.HL.Unsafe.Error
 import HDF5.HL.Internal.Encoding
+import HDF5.HL.Internal.Check
 import HDF5.HL.Monad
 import HDF5.C
 
