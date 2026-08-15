@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 -- |
-module HDF5.HL.Unsafe.Error
+module HDF5.HL.Error
   ( -- * Exception data type
     Error(..)
   , MajError(..)

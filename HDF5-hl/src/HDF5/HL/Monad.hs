@@ -17,7 +17,7 @@ import Foreign.Ptr
 import Foreign.Marshal
 
 import HDF5.C.Types
-import HDF5.HL.Unsafe.Error
+import HDF5.HL.Error
 
 -- | Monad for working with HDF5 code
 newtype Hdf5M s a = Hdf5M (forall r. Ptr HID -> ContT (Either Error r) IO a)
