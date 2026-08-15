@@ -179,7 +179,7 @@ class SerializeDSet a where
   basicReadDSet :: Dataset -> IO a
   -- | Arguments for dataset creation.
   basicDSetCreate
-    :: a -> (Hdf5M s Type, Hdf5M s Dataspace, [Property Dataset])
+    :: a -> (Hdf5M s (Type s), Hdf5M s (Dataspace s), [Property Dataset])
   -- | Primitive. Use 'writeDatasetAt' instead.
   basicWriteDSet
     :: a

@@ -387,7 +387,7 @@ createEmptyDataset
   :: (MonadIO m, MonadThrow m, IsDirectory dir, IsDataspace ext, HasCallStack)
   => dir                      -- ^ Location
   -> FilePath                 -- ^ Path relative to location
-  -> (forall s. Hdf5M s Type) -- ^ Computation to create type of element 
+  -> (forall s. Hdf5M s (Type s)) -- ^ Computation to create type of element
   -> ext                      -- ^ Extent of dataset. See 'IsDataspace' for details.
   -> [Property Dataset]       -- ^ Dataset creation properties
   -> m Dataset
@@ -407,8 +407,8 @@ hdfCreateEmptyDataset
   :: (IsDirectory dir, HasCallStack)
   => dir                -- ^ Location
   -> FilePath           -- ^ Path relative to location
-  -> Type               -- ^ Computation to create type of element 
-  -> Dataspace          -- ^ Extent of dataset. See 'IsDataspace' for details.
+  -> Type s             -- ^ Computation to create type of element
+  -> Dataspace s        -- ^ Extent of dataset. See 'IsDataspace' for details.
   -> [Property Dataset] -- ^ Dataset creation properties
   -> Hdf5M s Dataset
 hdfCreateEmptyDataset dir path ty space props = do
@@ -441,7 +441,7 @@ withCreateEmptyDataset
   :: (MonadIO m, MonadMask m, IsDirectory dir, IsDataspace ext, HasCallStack)
   => dir                      -- ^ Location
   -> FilePath                 -- ^ Path relative to location
-  -> (forall s. Hdf5M s Type) -- ^ Computation for creating element type
+  -> (forall s. Hdf5M s (Type s)) -- ^ Computation for creating element type
   -> ext                      -- ^ Dataspace, that is size of dataset
   -> [Property Dataset]       -- ^ Dataset creation properties
   -> (Dataset -> m a)

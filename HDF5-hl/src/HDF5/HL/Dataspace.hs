@@ -337,7 +337,7 @@ runParserDim uncons s0 (ParserDim fun) = fmap snd <$> fun uncons s0
 
 runParseFromDataspace
   :: (IsDataspace a)
-  => Dataspace
+  => Dataspace s
   -> Hdf5M s (Either DataspaceParseError a)
 runParseFromDataspace (getHID -> hid) = do
   contUnchecked (h5s_get_simple_extent_type hid) >>= \case
@@ -382,7 +382,7 @@ runParseFromDataspace (getHID -> hid) = do
 hdfCreateDataspaceFromExtent
   :: IsExtent dim
   => dim     -- ^ Extent of dataspace
-  -> Hdf5M s Dataspace
+  -> Hdf5M s (Dataspace s)
 hdfCreateDataspaceFromExtent dim = do
   (rank,ptr) <- withEncodedExtent $ encodeExtent dim
   boundCheckHID "Unable to create simple dataspace" Dataspace
@@ -393,7 +393,7 @@ hdfCreateDataspaceFromExtent dim = do
 hdfCreateDataspaceFromDSpace
   :: IsDataspace dim
   => dim -- ^ Extent of dataspace
-  -> Hdf5M s Dataspace
+  -> Hdf5M s (Dataspace s)
 hdfCreateDataspaceFromDSpace dim = do
   case encodeDataspace dim of
     Nothing -> boundCheckHID "Unable to create dataspace with NULL extent" Dataspace
@@ -407,7 +407,7 @@ hdfCreateDataspaceFromDSpace dim = do
 -- | Set selection in dataspace to a regular slab.
 setSlabSelection
   :: (IsExtent dim)
-  => Dataspace
+  => Dataspace s
   -> dim        -- ^ Offset
   -> dim        -- ^ Size of selection
   -> Hdf5M s ()
@@ -436,7 +436,7 @@ setSlabSelection (Dataspace hid) off sz = do
 --   @Just 0@ for scalars and @Just n@ for rank-N arrays.
 dataspaceRank
   :: (HasCallStack)
-  => Dataspace
+  => Dataspace s
   -> Hdf5M s (Maybe Int)
 dataspaceRank (Dataspace hid) = do
   contUnchecked (h5s_get_simple_extent_type hid) >>= \case
@@ -452,6 +452,6 @@ dataspaceRank (Dataspace hid) = do
 --   match expected shape.
 dataspaceExtent
   :: (IsDataspace ext, HasCallStack)
-  => Dataspace
+  => Dataspace s
   -> Hdf5M s (Either DataspaceParseError ext)
 dataspaceExtent spc = runParseFromDataspace spc

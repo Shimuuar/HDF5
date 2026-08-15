@@ -79,17 +79,17 @@ import HDF5.C
 -- | HDF5 data type. It's used to describe how data is laid out both
 --   in memory and on disc. Type class 'Element' is used to associate
 --   HDF5 type to haskell values.
-data Type
+data Type s
   = Type   !HID -- ^ Type which should be closed
   | Native !HID -- ^ Data types which does not need to be finalized
 
 
-getTypeHID :: Type -> HID
+getTypeHID :: Type s -> HID
 getTypeHID = \case
   Type   tid -> tid
   Native tid -> tid
 
-instance Closable Type where
+instance Closable (Type s) where
   basicClose = \case
     Native _   -> pure ()
     Type   tid -> alloca $ \p_err -> do
@@ -97,7 +97,7 @@ instance Closable Type where
       _ <- lockHDF5 $ h5t_close tid p_err
       return ()
 
-showType :: Type -> Hdf5M s String
+showType :: Type s -> Hdf5M s String
 showType (getTypeHID -> tid) = do
   p_sz  <- liftBracket $ alloca
   _     <- contCheckHErr "Can't show type"
@@ -110,7 +110,7 @@ showType (getTypeHID -> tid) = do
 
 
 -- | Compute size of HDF5 type.
-sizeOfH5 :: HasCallStack => Type -> Hdf5M s Int
+sizeOfH5 :: HasCallStack => Type s -> Hdf5M s Int
 sizeOfH5 ty = withFrozenCallStack $ do
   sz <- contCheckCSize "Cannot compute size of data type" 
       $ h5t_get_size (getTypeHID ty)
@@ -121,41 +121,41 @@ sizeOfH5 ty = withFrozenCallStack $ do
 --
 ----------------------------------------------------------------
 
-tyI8,tyI16,tyI32,tyI64 :: Type
+tyI8,tyI16,tyI32,tyI64 :: Type s
 tyI8  = Native h5t_NATIVE_SCHAR
 tyI16 = Native h5t_NATIVE_SHORT
 tyI32 = Native h5t_NATIVE_INT
 tyI64 = Native h5t_NATIVE_LONG
 
-tyU8,tyU16,tyU32,tyU64 :: Type
+tyU8,tyU16,tyU32,tyU64 :: Type s
 tyU8  = Native h5t_NATIVE_UCHAR
 tyU16 = Native h5t_NATIVE_USHORT
 tyU32 = Native h5t_NATIVE_UINT
 tyU64 = Native h5t_NATIVE_ULONG
 
-tyF32,tyF64 :: Type
+tyF32,tyF64 :: Type s
 tyF32 = Native h5t_NATIVE_FLOAT
 tyF64 = Native h5t_NATIVE_DOUBLE
 
-tyI8LE,tyI16LE,tyI32LE,tyI64LE :: Type
+tyI8LE,tyI16LE,tyI32LE,tyI64LE :: Type s
 tyI8LE  = Native h5t_STD_I8LE
 tyI16LE = Native h5t_STD_I16LE
 tyI32LE = Native h5t_STD_I32LE
 tyI64LE = Native h5t_STD_I64LE
 
-tyU8LE,tyU16LE,tyU32LE,tyU64LE :: Type
+tyU8LE,tyU16LE,tyU32LE,tyU64LE :: Type s
 tyU8LE  = Native h5t_STD_U8LE
 tyU16LE = Native h5t_STD_U16LE
 tyU32LE = Native h5t_STD_U32LE
 tyU64LE = Native h5t_STD_U64LE
 
-tyI8BE,tyI16BE,tyI32BE,tyI64BE :: Type
+tyI8BE,tyI16BE,tyI32BE,tyI64BE :: Type s
 tyI8BE  = Native h5t_STD_I8BE
 tyI16BE = Native h5t_STD_I16BE
 tyI32BE = Native h5t_STD_I32BE
 tyI64BE = Native h5t_STD_I64BE
 
-tyU8BE,tyU16BE,tyU32BE,tyU64BE :: Type
+tyU8BE,tyU16BE,tyU32BE,tyU64BE :: Type s
 tyU8BE  = Native h5t_STD_U8BE
 tyU16BE = Native h5t_STD_U16BE
 tyU32BE = Native h5t_STD_U32BE
@@ -190,7 +190,7 @@ tyU64BE = Native h5t_STD_U64BE
 --     _ -> pure Nothing
 
 
-makeArray :: Type -> [Int] -> Hdf5M s Type
+makeArray :: Type s -> [Int] -> Hdf5M s (Type s)
 makeArray ty dim = do
   p_dim <- liftBracket $ withArray (fromIntegral <$> dim)
   boundCheckHID "Cannot create array type" Type
@@ -199,7 +199,7 @@ makeArray ty dim = do
     n = fromIntegral $ length dim
 
 -- | Create record with named fields.
-makePackedRecord :: HasCallStack => [(String,Type)] -> Hdf5M s Type
+makePackedRecord :: HasCallStack => [(String, Type s)] -> Hdf5M s (Type s)
 makePackedRecord fields = do
   -- Compute size and offsets of fields
   let computeOff !off []             = pure (off,[])
@@ -219,7 +219,7 @@ makePackedRecord fields = do
 
 
 -- | Make enumeration data type which is based on underlying type @a@.
-makeEnumeration :: forall a s. (Element a, HasCallStack) => [(String,a)] -> Hdf5M s Type
+makeEnumeration :: forall a s. (Element a, HasCallStack) => [(String,a)] -> Hdf5M s (Type s)
 makeEnumeration elems = do
   p_val    <- liftBracket allocaElement
   base_ty  <- typeH5 @a
@@ -244,7 +244,7 @@ makeEnumeration elems = do
 --   from buffer using 'Storable'.
 class Element a where
   -- | HDF5 type of element.
-  typeH5 :: Hdf5M s Type
+  typeH5 :: Hdf5M s (Type s) 
   -- | Compute size of element. It must be same as @sizeOfH5 (typeH5 \@a)@
   fastSizeOfH5 :: Int
   -- | Alignment requirements
@@ -436,7 +436,7 @@ instance ( Generic a
   {-# INLINE pokeH5       #-}
 
 class GRecElement f where
-  gtypeH5 :: Hdf5M s [(String,Type)]
+  gtypeH5 :: Hdf5M s [(String, Type s)]
   gfastSizeOfH5 :: Int
   galignmentH5 :: Int
   gpeekH5 :: Ptr () -> Int -> IO (f p, Int)

@@ -58,19 +58,19 @@ class IsObject a => HasAttrs a
 -- | HDF5 entities which contains data that could be
 class IsObject a => HasData a where
   -- | Get type of object
-  getTypeHDF      :: HasCallStack => a -> Hdf5M s Type
+  getTypeHDF      :: HasCallStack => a -> Hdf5M s (Type s)
   -- | Get dataspace associated with object
-  getDataspaceHDF :: HasCallStack => a -> Hdf5M s Dataspace
+  getDataspaceHDF :: HasCallStack => a -> Hdf5M s (Dataspace s) 
   -- | Read all content of object
   unsafeReadAll  :: HasCallStack
                  => a       -- ^ Object handle
-                 -> Type    -- ^ Type of in-memory elements
+                 -> Type s  -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer to read to
                  -> Hdf5M s ()
   -- | Write full dataset at once
   unsafeWriteAll :: HasCallStack
                  => a       -- ^ Object handle
-                 -> Type    -- ^ Type of in-memory elements
+                 -> Type s  -- ^ Type of in-memory elements
                  -> Ptr x   -- ^ Buffer with data
                  -> Hdf5M s ()
 
@@ -117,12 +117,12 @@ newtype Attribute = Attribute HID
 --   type. Type classs 'HDF5.HL.Dataspace.IsExtent' and
 --   'HDF5.HL.Dataspace.IsDataspace' are used to convert haskell
 --   values to dataspaces and parse dimension data back.
-newtype Dataspace = Dataspace HID
+newtype Dataspace s = Dataspace HID
   deriving stock (Show,Eq,Ord)
   deriving newtype IsObject
 
 -- | Property list for values of type @p@.
-newtype PropertyHID p = PropertyHID HID
+newtype PropertyHID s p = PropertyHID HID
   deriving stock (Show,Eq,Ord)
   deriving newtype IsObject
 
@@ -191,7 +191,7 @@ instance Closable Attribute where
       checkHErr p_err "Failed to close Attribute"
     $ h5a_close hid
 
-instance Closable Dataspace where
+instance Closable (Dataspace s) where
   basicClose (Dataspace hid) = alloca $ \p_err ->
       checkHErr p_err "Failed to close Dataspace"
     $ h5s_close hid
@@ -201,7 +201,7 @@ instance Closable Group where
       checkHErr p_err "Failed to close Group"
     $ h5g_close hid
 
-instance Closable (PropertyHID p) where
+instance Closable (PropertyHID s p) where
   basicClose (PropertyHID hid) = alloca $ \p_err ->
       checkHErr p_err "Failed to close PropertyHID"
     $ h5p_close hid
