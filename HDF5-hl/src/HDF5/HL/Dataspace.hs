@@ -406,13 +406,12 @@ hdfCreateDataspaceFromDSpace dim = do
 
 -- | Set selection in dataspace to a regular slab.
 setSlabSelection
-  :: (IsExtent dim, MonadIO m, MonadThrow m)
+  :: (IsExtent dim)
   => Dataspace
   -> dim        -- ^ Offset
   -> dim        -- ^ Size of selection
-  -> m ()
--- FIXME: I need Hdf5M API variant
-setSlabSelection (Dataspace hid) off sz = runLiftHdf5M $ do
+  -> Hdf5M s ()
+setSlabSelection (Dataspace hid) off sz = do
   rank_dset <- contCheckCInt "Cannot get rank of dataspace's extent"
              $ h5s_get_simple_extent_ndims hid
   --
