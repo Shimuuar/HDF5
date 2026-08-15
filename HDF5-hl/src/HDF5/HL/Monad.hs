@@ -1,17 +1,18 @@
 -- |
 module HDF5.HL.Monad
-  ( Hdf5M(..)
+  ( Hdf5M
   , runHdf5M
   , runLiftHdf5M
   , runHdf5MEither
   , scopeHdfFinalizers
+  , throwHdf5
   , askPErr
   , liftBracket
   ) where
 
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Cont hiding (cont)
 import Control.Monad.IO.Class
 import Foreign.Ptr
 import Foreign.Marshal
@@ -31,6 +32,9 @@ runLiftHdf5M = either throwM pure <=< liftIO . runHdf5MEither
 
 runHdf5MEither :: Hdf5M a -> IO (Either Error a)
 runHdf5MEither (Hdf5M action) = alloca $ \ptr -> runContT (action ptr) (pure . Right)
+
+throwHdf5 :: Error -> Hdf5M a
+throwHdf5 e = Hdf5M $ \_ -> ContT $ \_ -> pure (Left e)
 
 instance Applicative Hdf5M where
   pure a = Hdf5M (const (pure a))
